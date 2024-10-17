@@ -1,1 +1,1 @@
-import "./oneplusone.test.ts"
+import './oneplusone.test.ts'
