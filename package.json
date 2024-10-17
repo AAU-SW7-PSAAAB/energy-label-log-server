@@ -8,8 +8,8 @@
         "test": "tsx --test \"test/**/*.test.ts\"",
         "build": "npx tsc index.ts --outDir ./dist",
         "exec": "npm run build && node ./dist/index.js",
-        "lint": "npx prettier . --write",
-        "check": "npx prettier . --write"
+        "fmt": "npx prettier . --write",
+        "check": "npx eslint ."
     },
     "repository": {
         "type": "git",
