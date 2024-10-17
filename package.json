@@ -5,7 +5,7 @@
     "main": "index.ts",
     "type": "module",
     "scripts": {
-        "test": "tsx --test ./test/**/*.test.ts",
+        "test": "tsx --test test/**/*.test.ts",
         "build": "npx tsc index.ts --outDir ./dist",
         "exec": "npm run build && node ./dist/index.js",
         "lint": "npx prettier . --write",
