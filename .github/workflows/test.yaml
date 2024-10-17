@@ -32,7 +32,7 @@ jobs:
         run: npm install
 
       - name: LS 
-        run: ls 
+        run: pwd && ls 
 
       - name: Run test
         run: npm run test
