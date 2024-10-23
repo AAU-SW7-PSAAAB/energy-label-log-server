@@ -4,7 +4,7 @@
 const help = `
 --help         :: Prints this message
 --host=<value> :: Sets the host of the server (default = 127.0.0.1)
---port=<value> :: Sets the host of the server (default = 3000)
+--port=<value> :: Sets the port of the server (default = 3000)
 `
 
 /**
