@@ -1,5 +1,5 @@
 import Fastify from 'fastify'
-import cli from './cli'
+import cli from './cli.js'
 
 export async function main() {
     const port = Number(cli.default('3000').get('--port'))

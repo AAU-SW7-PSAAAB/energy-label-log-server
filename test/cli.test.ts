@@ -1,4 +1,4 @@
-import { Cli } from '../app/cli'
+import { Cli } from '../app/cli.js'
 
 import assert from 'assert'
 import { describe, it } from 'node:test'

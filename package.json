@@ -3,6 +3,7 @@
     "version": "1.0.0",
     "description": "It is a server for logging data from the npm extention",
     "main": "index.ts",
+    "type": "module",
     "scripts": {
         "test": "tsx --test \"test/index.test.ts\"",
         "build": "npx tsc",
