@@ -25,7 +25,7 @@ type CliArgs = { [key in ValidArgs]: string | null }
 /**
  * The class responcible for handeling commandline arguments
  */
-class Cli {
+export class Cli {
     private args: CliArgs
     constructor(args: string[]) {
         this.args = validArgs.reduce(
@@ -74,8 +74,8 @@ class Cli {
  * Set the default value if the
  */
 class Default {
-    args: CliArgs
-    default: string
+    private args: CliArgs
+    private default: string
     constructor(args: CliArgs, def: string) {
         this.args = args
         this.default = def
