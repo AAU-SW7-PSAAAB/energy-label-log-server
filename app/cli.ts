@@ -43,7 +43,7 @@ export class Cli {
 
             if (!validArgs.includes(key as ValidArgs)) {
                 console.error(
-                    `${key} is not a valid key, enshure the argument is on the form --key=value.` +
+                    `${key} is not a valid key, ensure the argument is of the form --key=value.` +
                         `Use --help to get a list of valid arguments`
                 )
                 process.exit(-1)
@@ -51,7 +51,7 @@ export class Cli {
 
             if (value === undefined) {
                 console.error(
-                    `Failed to parse arg ${key} enshure it is on the form --key=value`
+                    `Failed to parse arg ${key} ensure it is of the form --key=value`
                 )
                 process.exit(1)
             }
