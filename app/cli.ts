@@ -51,7 +51,7 @@ export class Cli {
 
             if (value === undefined) {
                 console.error(
-                    `Failed to parse arg ${key} enshure it is on the form --key=value`
+                    `Failed to parse arg ${key} ensure it is of the form --key=value`
                 )
                 process.exit(1)
             }
