@@ -18,7 +18,7 @@ const validArgs = ['--host', '--port'] as const
 type ValidArgs = (typeof validArgs)[number]
 
 /**
- * The type of arguments object used to
+ * The object type containing cli arguments
  */
 type CliArgs = { [key in ValidArgs]: string | null }
 
@@ -69,7 +69,7 @@ export class Cli {
 }
 
 /**
- * Set the default value if the
+ * Set the default value if the argument is not set
  */
 class Default {
     private args: CliArgs
