@@ -33,8 +33,6 @@ export class Cli {
             {}
         ) as CliArgs
 
-        console.log(this.args)
-
         for (const arg of args) {
             if (arg === '--help') {
                 console.log(help)
@@ -85,7 +83,6 @@ class Default {
      * Get a commandline argument, if it is not set return the default value
      */
     get(...fields: ValidArgs[]) {
-        console.log('Args', this.args)
         for (const argument of fields) {
             const value = this.args[argument]
             if (value !== null) {
