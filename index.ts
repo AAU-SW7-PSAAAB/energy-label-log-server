@@ -1,3 +1,3 @@
-import { main } from './app/index.ts'
+import { main } from './app/index.js'
 
 main()

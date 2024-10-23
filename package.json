@@ -6,7 +6,7 @@
     "type": "module",
     "scripts": {
         "test": "tsx --test \"test/index.test.ts\"",
-        "build": "npx tsc index.ts --outDir ./dist",
+        "build": "npx tsc",
         "exec": "npm run build && node ./dist/index.js",
         "fmt": "npx prettier . --write",
         "check-fmt": "npx prettier . --check",
