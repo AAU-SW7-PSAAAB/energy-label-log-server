@@ -5,12 +5,26 @@ const help = `
 --help         :: Prints this message
 --host=<value> :: Sets the host of the server (default = 127.0.0.1)
 --port=<value> :: Sets the port of the server (default = 3000)
+
+--mariadb-user=<value>     :: Sets the user of the mariadb connection (default = energylabel)
+--mariadb-password=<value> :: Sets the password of the mariadb connection (default = energylabel)
+--mariadb-database=<value> :: Sets the database of the mariadb connection (default = energylabel)
+--mariadb-port=<value> :: Sets the port of the mariadb connection (default = 3306)
+--mariadb-host=<value> :: Sets the port of the mariadb connection (default = localhost)
 `
 
 /**
  * The valid argument keys of the server
  */
-const validArgs = ['--host', '--port'] as const
+const validArgs = [
+    '--host', 
+    '--port',
+    '--mariadb-user',
+    '--mariadb-password',
+    '--mariadb-database',
+    '--mariadb-port',
+    '--mariadb-host',
+] as const
 
 /**
  * The literal type of valid argument keys of the server
