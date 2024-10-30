@@ -1,7 +1,0 @@
-# Ignore artifacts:
-.github
-.git
-.gitignore
-coverage
-dist
-package-lock.json
