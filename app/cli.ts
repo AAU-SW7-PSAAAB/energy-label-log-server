@@ -1,3 +1,6 @@
+import { connect } from 'http2'
+import db from './db.js'
+
 /**
  * The help message that is written once --help is given as an argument
  */
@@ -17,7 +20,7 @@ const help = `
  * The valid argument keys of the server
  */
 const validArgs = [
-    '--host', 
+    '--host',
     '--port',
     '--mariadb-user',
     '--mariadb-password',
@@ -47,10 +50,25 @@ export class Cli {
             {}
         ) as CliArgs
 
+        let continuefn = () => {}
+
         for (const arg of args) {
             if (arg === '--help') {
-                console.log(help)
-                process.exit(0)
+                continuefn = () => {
+                    console.log(help)
+                    process.exit(0)
+                }
+
+                continue
+            }
+
+            if (arg === '--mariadb-init') {
+                continuefn = () => {
+                    db.init()
+                    process.exit(0)
+                }
+
+                continue
             }
 
             const [key, value] = arg.split('=')
@@ -72,6 +90,8 @@ export class Cli {
 
             this.args[key as ValidArgs] = value
         }
+
+        continuefn()
     }
 
     /**
