@@ -1,52 +1,54 @@
 {
-    "name": "energy-label-log-server",
-    "version": "1.0.0",
-    "description": "It is a server for logging data from the npm extention",
-    "main": "index.ts",
-    "type": "module",
-    "scripts": {
-        "test": "tsx --test \"test/index.test.ts\"",
-        "build": "npx tsc",
-        "exec": "npm run build && npx vite-node ./dist/index.js",
-        "fmt": "npx prettier . --write",
-        "check-fmt": "npx prettier . --check",
-        "lint": "npx eslint ."
-    },
-    "repository": {
-        "type": "git",
-        "url": "git+https://github.com/AAU-SW7-PSAAAB/energy-label-log-server.git"
-    },
-    "keywords": [
-        "log",
-        "server",
-        "energy-label"
-    ],
-    "author": "sw7-24-05",
-    "license": "MIT",
-    "bugs": {
-        "url": "https://github.com/AAU-SW7-PSAAAB/energy-label-log-server/issues"
-    },
-    "homepage": "https://github.com/AAU-SW7-PSAAAB/energy-label-log-server#readme",
-    "devDependencies": {
-        "@eslint/compat": "^1.2.0",
-        "@eslint/js": "^9.12.0",
-        "@types/node": "^22.7.5",
-        "eslint": "^9.12.0",
-        "globals": "^15.11.0",
-        "node-ts": "^6.1.3",
-        "prettier": "3.3.3",
-        "ts-loader": "^9.5.1",
-        "ts-node": "^10.9.2",
-        "tsx": "^4.19.1",
-        "typescript": "^5.6.3",
-        "typescript-eslint": "^8.9.0",
-        "vite-node": "^2.1.3"
-    },
-    "dependencies": {
-        "energy-label-types": "github:AAU-SW7-PSAAAB/energy-label-types",
-        "fastify": "^5.0.0",
-        "fastify-type-provider-zod": "^4.0.2",
-        "mariadb": "^3.3.2",
-        "zod": "^3.23.8"
-    }
+	"name": "energy-label-log-server",
+	"version": "1.0.0",
+	"description": "It is a server for logging data from the npm extention",
+	"main": "index.ts",
+	"type": "module",
+	"scripts": {
+		"test": "tsx --test \"test/index.test.ts\"",
+		"build": "npx tsc",
+		"exec": "npm run build && npx vite-node ./dist/index.js",
+		"lint": "npm run lint:ts && npm run format",
+		"lint:check": "npm run lint:ts:check && npm run format:check",
+		"lint:ts": "npx eslint --fix",
+		"lint:ts:check": "npx eslint",
+		"format": "npx prettier . --write",
+		"format:check": "npx prettier . --check"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/AAU-SW7-PSAAAB/energy-label-log-server.git"
+	},
+	"keywords": [
+		"log",
+		"server",
+		"energy-label"
+	],
+	"author": "sw7-24-05",
+	"license": "MIT",
+	"bugs": {
+		"url": "https://github.com/AAU-SW7-PSAAAB/energy-label-log-server/issues"
+	},
+	"homepage": "https://github.com/AAU-SW7-PSAAAB/energy-label-log-server#readme",
+	"devDependencies": {
+		"@eslint/compat": "^1.2.0",
+		"@eslint/js": "^9.12.0",
+		"@types/node": "^22.7.5",
+		"eslint": "^9.12.0",
+		"globals": "^15.11.0",
+		"node-ts": "^6.1.3",
+		"prettier": "3.3.3",
+		"ts-loader": "^9.5.1",
+		"ts-node": "^10.9.2",
+		"tsx": "^4.19.1",
+		"typescript": "^5.6.3",
+		"typescript-eslint": "^8.9.0",
+		"vite-node": "^2.1.3"
+	},
+	"dependencies": {
+		"energy-label-types": "github:AAU-SW7-PSAAAB/energy-label-types",
+		"fastify": "^5.0.0",
+		"fastify-type-provider-zod": "^4.0.2",
+		"zod": "^3.23.8"
+	}
 }

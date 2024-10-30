@@ -1,61 +1,68 @@
-import cli from './cli.js'
-import mariadb from 'mariadb'
-import { Run } from 'energy-label-types'
+import cli from "./cli.js";
+import mariadb from "mariadb";
+import { Run } from "energy-label-types";
 
 class DB {
-    constructor() {}
-    private connect() {
-        const user = cli.default('energylabel').get('--mariadb-user')
-        const password = cli.default('energylabel').get('--mariadb-password')
-        const database = cli.default('energylabel').get('--mariadb-database')
-        const host = cli.default('localhost').get('--mariadb-host')
-        const port = Number(cli.default('3306').get('--mariadb-port'))
+	constructor() {}
+	private connect() {
+		const user = cli.default("energylabel").get("--mariadb-user");
+		const password = cli.default("energylabel").get("--mariadb-password");
+		const database = cli.default("energylabel").get("--mariadb-database");
+		const host = cli.default("localhost").get("--mariadb-host");
+		const port = Number(cli.default("3306").get("--mariadb-port"));
 
-        return mariadb.createPool({
-            user: user,
-            host: host,
-            port: port,
-            password: password,
-            database: database,
-            connectionLimit: 5,
-        })
-    }
+		return mariadb.createPool({
+			user: user,
+			host: host,
+			port: port,
+			password: password,
+			database: database,
+			connectionLimit: 5,
+		});
+	}
 
-    init() {
-        const pool = this.connect()
-        const query = `${plugin}${browser}${url}${fact}`.replace(/\s+/g, ' ')
-        pool.batch(query)
-    }
+	init() {
+		const pool = this.connect();
+		const query = `${plugin}${browser}${url}${fact}`.replace(/\s+/g, " ");
+		pool.batch(query);
+	}
 
-    insertRuns(...runs: Run[]) {
-        const pool = this.connect()
+	insertRuns(...runs: Run[]) {
+		const pool = this.connect();
 
-        const query = runs.reduce((prev:string, run) => prev + insertRun(run), 'START TRANSACTION') + "COMMIT;"
+		const query =
+			runs.reduce(
+				(prev: string, run) => prev + insertRun(run),
+				"START TRANSACTION",
+			) + "COMMIT;";
 
-        pool.batch(query)
-    }
+		pool.batch(query);
+	}
 }
 
 enum Tables {
-    PluginName = 'PluginName',
-    Plugin = 'Plugin',
-    BrowserName = 'BrowserName',
-    Browser = 'Browser',
-    Domain = 'Domain',
-    Url = 'Url',
-    Fact = 'Fact',
+	PluginName = "PluginName",
+	Plugin = "Plugin",
+	BrowserName = "BrowserName",
+	Browser = "Browser",
+	Domain = "Domain",
+	Url = "Url",
+	Fact = "Fact",
 }
 
 function insertRun(run: Run) {
-    const procs = (
-        [[Tables.PluginName, [['name', run.plutingName.replace("'", "\\'")]]]] as Array<
-            [Tables, Array<[string, string]>]
-        >
-    )
-        .reduce(
-            (prev: string, [tb, pairs]) =>
-                prev +
-                `DELIMITER $$
+	const procs = (
+		[
+			[
+				Tables.PluginName,
+				[["name", run.plutingName.replace("'", "\\'")]],
+			],
+		] as Array<[Tables, Array<[string, string]>]>
+	)
+		.reduce(
+			(prev: string, [tb, pairs]) =>
+				prev +
+				`DELIMITER $$
                     CREATE FUNCTION #insertif${tb} RETURNS INT 
                         DETERMINISTIC
                     BEGIN
@@ -67,17 +74,15 @@ function insertRun(run: Run) {
                         ELSE
                             BEGIN
                                 INSERT INTO ${tb} (${pairs.map(([key]) => `'${key}'`).join(",")}) 
-                                    VALUES (${pairs.map(([,val]) => `'${val}'`).join(",")}));
+                                    VALUES (${pairs.map(([, val]) => `'${val}'`).join(",")}));
                                 RETURN (SELECT MAX(id) FROM ${tb});
                             END;
                     END
                 $$
                 DELIMITER ;`,
-            ''
-        )
-        .replace(/\s+/g, ' ');
-
-
+			"",
+		)
+		.replace(/\s+/g, " ");
 }
 
 const plugin = `
@@ -92,7 +97,7 @@ CREATE TABLE Plugin (
     extention_version TINYTEXT,
     plugin_id INT UNSIGNED REFERENCES PluginName(id)
 ) ENGINE=ColumnStore;
-`
+`;
 
 const browser = `
 CREATE TABLE ${Tables.BrowserName} (
@@ -105,7 +110,7 @@ CREATE TABLE ${Tables.Browser}(
     version TINYTEXT,
     browser_id INT UNSIGNED REFERENCES BrowserName(id)
 ) ENGINE=ColumnStore;
-`
+`;
 
 const url = `
 CREATE TABLE ${Tables.Domain}(
@@ -118,7 +123,7 @@ CREATE TABLE ${Tables.Url}(
     path TINYTEXT,
     domain_id INT UNSIGNED REFERENCES Domain(id)
 ) ENGINE=ColumnStore;
-`
+`;
 
 const fact = `
 CREATE TABLE ${Tables.Fact}(
@@ -128,4 +133,4 @@ CREATE TABLE ${Tables.Fact}(
     url_id INT UNSIGNED REFERENCES Url(id),
     browser_id INT UNSIGNED REFERENCES Browser(id) 
 ) ENGINE=ColumnStore;
-`
+`;
