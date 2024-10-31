@@ -49,6 +49,7 @@
 		"energy-label-types": "github:AAU-SW7-PSAAAB/energy-label-types",
 		"fastify": "^5.0.0",
 		"fastify-type-provider-zod": "^4.0.2",
+		"mariadb": "^3.4.0",
 		"zod": "^3.23.8"
 	}
 }

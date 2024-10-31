@@ -1,5 +1,4 @@
-import { connect } from "http2";
-import db from "./db.js";
+import DB, { insertTestRun } from "./db.js";
 
 /**
  * The help message that is written once --help is given as an argument
@@ -13,6 +12,8 @@ const help = `
 --mariadb-database=<value> :: Sets the database of the mariadb connection (default = energylabel)
 --mariadb-port=<value> :: Sets the port of the mariadb connection (default = 3306)
 --mariadb-host=<value> :: Sets the port of the mariadb connection (default = localhost)
+--mariadb-init :: Initializes the database
+--mariadb-column-store=<bool> :: Sets the storage to column store in --mariadb-init (default = true)
 `;
 
 /**
@@ -26,7 +27,15 @@ const validArgs = [
 	"--mariadb-database",
 	"--mariadb-port",
 	"--mariadb-host",
+	"--mariadb-column-store",
 ] as const;
+
+const singleArgs = [
+	"--help",
+	"--mariadb-init",
+	"--mariadb-insert-test-run",
+	"--mariadb-unsafe-drop-tables",
+];
 
 /**
  * The literal type of valid argument keys of the server
@@ -49,28 +58,12 @@ export class Cli {
 			{},
 		) as CliArgs;
 
-		let continuefn = () => {};
-
 		for (const arg of args) {
-			if (arg === "--help") {
-				continuefn = () => {
-					console.log(help);
-					process.exit(0);
-				};
-
-				continue;
-			}
-
-			if (arg === "--mariadb-init") {
-				continuefn = () => {
-					db.init();
-					process.exit(0);
-				};
-
-				continue;
-			}
-
 			const [key, value] = arg.split("=");
+
+			if (singleArgs.includes(key)) {
+				continue;
+			}
 
 			if (!validArgs.includes(key as ValidArgs)) {
 				console.error(
@@ -89,8 +82,6 @@ export class Cli {
 
 			this.args[key as ValidArgs] = value;
 		}
-
-		continuefn();
 	}
 
 	/**
@@ -128,3 +119,27 @@ class Default {
 }
 
 export default new Cli(process.argv.slice(2));
+
+export async function checkSingleArgs() {
+	for (const arg of process.argv) {
+		if (arg === "--help") {
+			console.log(help);
+			process.exit(0);
+		}
+
+		if (arg === "--mariadb-init") {
+			await new DB().init();
+			process.exit(0);
+		}
+
+		if (arg === "--mariadb-insert-test-run") {
+			await insertTestRun();
+			process.exit(0);
+		}
+
+		if (arg === "--mariadb-unsafe-drop-tables") {
+			await new DB().dropTables();
+			process.exit(0);
+		}
+	}
+}
