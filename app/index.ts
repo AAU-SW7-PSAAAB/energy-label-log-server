@@ -36,7 +36,6 @@ export async function main() {
 		},
 	});
 
-
 	try {
 		await app.listen({ host: host, port: port });
 	} catch (err) {

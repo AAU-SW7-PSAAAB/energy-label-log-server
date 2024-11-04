@@ -28,10 +28,16 @@ type Schema = Array<
 	| { ty: DBTYPES.PK; name: string }
 >;
 
+/**
+ * Sanitize text input to avoid SQL injections
+ * */
 function sanitize(s: string) {
 	return s.replace("'", "\\'");
 }
 
+/**
+ * A Rrepresentation of the tabels in the database
+ * */
 const schema: Schema = [
 	{ ty: DBTYPES.INT, name: "score", runkey: "score" },
 	{ ty: DBTYPES.INT, name: "status_code", runkey: "statusCode" },
@@ -112,6 +118,9 @@ export default class DB {
 	constructor() {
 		this.pool = this.connect();
 	}
+	/**
+	 * Create a connection pool
+	 * */
 	private connect() {
 		const user = cli.default("energylabel").get("--mariadb-user");
 		const password = cli.default("energylabel").get("--mariadb-password");
@@ -129,6 +138,9 @@ export default class DB {
 		});
 	}
 
+	/**
+	 * Pipeline a list of commands
+	 * */
 	private async query(queries: string[]) {
 		let conn: mariadb.Connection | null = null;
 		try {
@@ -146,27 +158,37 @@ export default class DB {
 		}
 	}
 
+	/**
+	 * Initialize tables in database
+	 * */
 	async init() {
 		const queries = compileTables(schema, dummyParent, undefined);
-		console.log("CREATE TABLES\n", queries);
 		await this.query(queries);
 	}
 
+	/**
+	 * Insert runs into the database
+	 * */
 	async insertRuns(...runs: Run[]) {
 		const query = runs.flatMap((run) =>
 			insertRun(schema, dummyParent, run),
 		);
-		console.log(query);
 		await this.query(query);
 	}
 
+	/**
+	 * WARNING UNSAFE!!!
+	 * This function WILL delete all data in the database
+	 * */
 	async dropTables() {
 		const query = dropTables(schema, dummyParent, undefined).reverse();
-		console.log(query);
 		await this.query(query);
 	}
 }
 
+/**
+ * Gets name of id in child schema
+ * */
 function findid(schema: Schema) {
 	for (const field of schema) {
 		if (field.ty === DBTYPES.PK) {
@@ -177,7 +199,13 @@ function findid(schema: Schema) {
 	exit(1);
 }
 
-function keysAndValues(schema: Schema, run: Run) {
+/**
+ * Returns [keys, values] of a schema
+ * */
+function keysAndValues(
+	schema: Schema,
+	run: Run,
+): [Array<string>, Array<string>] {
 	const keys = schema
 		.map((field) => {
 			switch (field.ty) {
@@ -206,6 +234,11 @@ function keysAndValues(schema: Schema, run: Run) {
 	return [keys, values];
 }
 
+/**
+ * Run a recursive command on all tables in the schema
+ * fact: Command special to the facttable
+ * child: Command special to all children
+ * */
 function traverseSchema<T>(
 	fact: (schema: Schema, parent: SchemaFK, val: T) => string[],
 	child: (schema: Schema, parent: SchemaFK, val: T) => string[],
@@ -227,6 +260,9 @@ function traverseSchema<T>(
 	};
 }
 
+/**
+ * Create the where clause of a child schema
+ * */
 function createWhere(schema: Schema, run: Run): string {
 	return schema
 		.map((field) => {
@@ -245,6 +281,9 @@ function createWhere(schema: Schema, run: Run): string {
 		.join(" AND ");
 }
 
+/**
+ * Insert a run in to the database
+ * */
 const insertRun = traverseSchema<Run>(
 	(schema, parent, run) => {
 		const [keys, values] = keysAndValues(schema, run);
@@ -268,6 +307,9 @@ const insertRun = traverseSchema<Run>(
 	},
 );
 
+/**
+ * Create a  single table
+ * */
 const createTable = (schema: Schema, parent: SchemaFK) => {
 	let stmt = "";
 	stmt += `CREATE TABLE ${parent.table}(`;
@@ -295,13 +337,26 @@ const createTable = (schema: Schema, parent: SchemaFK) => {
 	return [stmt];
 };
 
+/**
+ * Create queries to create all tables in the schema
+ * */
 const compileTables = traverseSchema<undefined>(createTable, createTable);
 
+/**
+ * Drop a table
+ * */
 const createDropTables = (...[, parent]: [Schema, SchemaFK, undefined]) => {
 	return [`DROP TABLE ${parent.table};`];
 };
+
+/**
+ * Create queries to drop all tables in a schema
+ * */
 const dropTables = traverseSchema(createDropTables, createDropTables);
 
+/**
+ * Insert a testrun in the database
+ * */
 export async function insertTestRun() {
 	const run: Run = {
 		score: 10,

@@ -30,6 +30,10 @@ const validArgs = [
 	"--mariadb-column-store",
 ] as const;
 
+/**
+ * The valid single arguments,
+ * NOTE CREATE A CODITION AT THE END OF THIS FILE
+ * */
 const singleArgs = [
 	"--help",
 	"--mariadb-init",
@@ -120,6 +124,9 @@ class Default {
 
 export default new Cli(process.argv.slice(2));
 
+/**
+ * Check all single args the in the cli.
+ * */
 export async function checkSingleArgs() {
 	for (const arg of process.argv) {
 		if (arg === "--help") {
