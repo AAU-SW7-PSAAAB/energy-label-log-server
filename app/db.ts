@@ -4,10 +4,10 @@ import { Run, StatusCodes } from "energy-label-types";
 import { exit } from "process";
 
 enum DBTYPES {
-	INT,
-	TEXT,
-	FK,
-	PK,
+	Int,
+	Text,
+	ForeignKey,
+	PrimaryKey,
 }
 enum Tables {
 	PluginName = "PluginName",
@@ -19,13 +19,18 @@ enum Tables {
 	Fact = "Fact",
 }
 
-type SchemaFK = { ty: DBTYPES.FK; name: string; table: Tables; child: Schema };
+type SchemaFK = {
+	dbtype: DBTYPES.ForeignKey;
+	name: string;
+	table: Tables;
+	child: Schema;
+};
 
 type Schema = Array<
-	| { ty: DBTYPES.INT; name: string; runkey: keyof Run }
-	| { ty: DBTYPES.TEXT; name: string; runkey: keyof Run }
+	| { dbtype: DBTYPES.Int; name: string; runkey: keyof Run }
+	| { dbtype: DBTYPES.Text; name: string; runkey: keyof Run }
 	| SchemaFK
-	| { ty: DBTYPES.PK; name: string }
+	| { dbtype: DBTYPES.PrimaryKey; name: string }
 >;
 
 /**
@@ -39,46 +44,50 @@ function sanitize(s: string) {
  * A Rrepresentation of the tabels in the database
  * */
 const schema: Schema = [
-	{ ty: DBTYPES.INT, name: "score", runkey: "score" },
-	{ ty: DBTYPES.INT, name: "status_code", runkey: "statusCode" },
+	{ dbtype: DBTYPES.Int, name: "score", runkey: "score" },
+	{ dbtype: DBTYPES.Int, name: "status_code", runkey: "statusCode" },
 	{
-		ty: DBTYPES.FK,
+		dbtype: DBTYPES.ForeignKey,
 		name: "plugin_id",
 		table: Tables.Plugin,
 		child: [
-			{ ty: DBTYPES.PK, name: "id" },
-			{ ty: DBTYPES.TEXT, name: "version", runkey: "pluginVersion" },
+			{ dbtype: DBTYPES.PrimaryKey, name: "id" },
+			{ dbtype: DBTYPES.Text, name: "version", runkey: "pluginVersion" },
 			{
-				ty: DBTYPES.TEXT,
+				dbtype: DBTYPES.Text,
 				name: "extention_version",
 				runkey: "extensionVersion",
 			},
 			{
-				ty: DBTYPES.FK,
+				dbtype: DBTYPES.ForeignKey,
 				name: "plugin_name_id",
 				table: Tables.PluginName,
 				child: [
-					{ ty: DBTYPES.PK, name: "id" },
-					{ ty: DBTYPES.TEXT, name: "name", runkey: "pluginName" },
+					{ dbtype: DBTYPES.PrimaryKey, name: "id" },
+					{
+						dbtype: DBTYPES.Text,
+						name: "name",
+						runkey: "pluginName",
+					},
 				],
 			},
 		],
 	},
 	{
-		ty: DBTYPES.FK,
+		dbtype: DBTYPES.ForeignKey,
 		name: "browser_id",
 		table: Tables.Browser,
 		child: [
-			{ ty: DBTYPES.PK, name: "id" },
-			{ ty: DBTYPES.TEXT, name: "version", runkey: "browserVersion" },
+			{ dbtype: DBTYPES.PrimaryKey, name: "id" },
+			{ dbtype: DBTYPES.Text, name: "version", runkey: "browserVersion" },
 			{
-				ty: DBTYPES.FK,
+				dbtype: DBTYPES.ForeignKey,
 				name: "browser_version",
 				table: Tables.BrowserName,
 				child: [
-					{ ty: DBTYPES.PK, name: "id" },
+					{ dbtype: DBTYPES.PrimaryKey, name: "id" },
 					{
-						ty: DBTYPES.TEXT,
+						dbtype: DBTYPES.Text,
 						name: "browser_name",
 						runkey: "browserName",
 					},
@@ -87,19 +96,19 @@ const schema: Schema = [
 		],
 	},
 	{
-		ty: DBTYPES.FK,
+		dbtype: DBTYPES.ForeignKey,
 		name: "url_id",
 		table: Tables.Url,
 		child: [
-			{ ty: DBTYPES.PK, name: "id" },
-			{ ty: DBTYPES.TEXT, name: "path", runkey: "path" },
+			{ dbtype: DBTYPES.PrimaryKey, name: "id" },
+			{ dbtype: DBTYPES.Text, name: "path", runkey: "path" },
 			{
-				ty: DBTYPES.FK,
+				dbtype: DBTYPES.ForeignKey,
 				name: "domain_id",
 				table: Tables.Domain,
 				child: [
-					{ ty: DBTYPES.PK, name: "id" },
-					{ ty: DBTYPES.TEXT, name: "domain", runkey: "url" },
+					{ dbtype: DBTYPES.PrimaryKey, name: "id" },
+					{ dbtype: DBTYPES.Text, name: "domain", runkey: "url" },
 				],
 			},
 		],
@@ -107,7 +116,7 @@ const schema: Schema = [
 ];
 
 const dummyParent: SchemaFK = {
-	ty: DBTYPES.FK,
+	dbtype: DBTYPES.ForeignKey,
 	name: "fact",
 	table: Tables.Fact,
 	child: schema,
@@ -126,7 +135,9 @@ export default class DB {
 		const password = cli.default("energylabel").get("--mariadb-password");
 		const database = cli.default("energylabel").get("--mariadb-database");
 		const host = cli.default("localhost").get("--mariadb-host");
-		const port = Number(cli.default("3306").get("--mariadb-port"));
+		const port: number = Number(cli.default("3306").get("--mariadb-port"));
+
+		if (isNaN(port)) throw Error("Mariadb port must be a number");
 
 		return mariadb.createPool({
 			user: user,
@@ -191,7 +202,7 @@ export default class DB {
  * */
 function findid(schema: Schema) {
 	for (const field of schema) {
-		if (field.ty === DBTYPES.PK) {
+		if (field.dbtype === DBTYPES.PrimaryKey) {
 			return field.name;
 		}
 	}
@@ -200,7 +211,7 @@ function findid(schema: Schema) {
 }
 
 /**
- * Returns [keys, values] of a schema
+ * Returns [keys, values] of a schema based on the values of in a Run
  * */
 function keysAndValues(
 	schema: Schema,
@@ -208,8 +219,8 @@ function keysAndValues(
 ): [Array<string>, Array<string>] {
 	const keys = schema
 		.map((field) => {
-			switch (field.ty) {
-				case DBTYPES.PK:
+			switch (field.dbtype) {
+				case DBTYPES.PrimaryKey:
 					return "";
 				default:
 					return field.name;
@@ -219,13 +230,13 @@ function keysAndValues(
 
 	const values = schema
 		.map((field) => {
-			switch (field.ty) {
-				case DBTYPES.PK:
+			switch (field.dbtype) {
+				case DBTYPES.PrimaryKey:
 					return "";
-				case DBTYPES.TEXT:
-				case DBTYPES.INT:
+				case DBTYPES.Text:
+				case DBTYPES.Int:
 					return "'" + sanitize(run[field.runkey].toString()) + "'";
-				case DBTYPES.FK:
+				case DBTYPES.ForeignKey:
 					return `(SELECT id FROM ${field.table} WHERE ${createWhere(field.child, run)} LIMIT 1)`;
 			}
 		})
@@ -247,7 +258,7 @@ function traverseSchema<T>(
 		let stmt: Array<string> = [];
 		// TRAVERSE CHILDREN
 		for (const field of schema) {
-			if (field.ty === DBTYPES.FK) {
+			if (field.dbtype === DBTYPES.ForeignKey) {
 				stmt = [
 					...stmt,
 					...traverseSchema(child, child)(field.child, field, val),
@@ -266,14 +277,14 @@ function traverseSchema<T>(
 function createWhere(schema: Schema, run: Run): string {
 	return schema
 		.map((field) => {
-			switch (field.ty) {
-				case DBTYPES.INT:
+			switch (field.dbtype) {
+				case DBTYPES.Int:
 					return `${field.name}='${run[field.runkey]}'`;
-				case DBTYPES.TEXT:
+				case DBTYPES.Text:
 					return `${field.name}='${sanitize(run[field.runkey] as string)}'`;
-				case DBTYPES.FK:
+				case DBTYPES.ForeignKey:
 					return `${field.name}=(SELECT id FROM ${field.table} WHERE ${createWhere(field.child, run)} LIMIT 1)`;
-				case DBTYPES.PK:
+				case DBTYPES.PrimaryKey:
 					return "";
 			}
 		})
@@ -315,14 +326,14 @@ const createTable = (schema: Schema, parent: SchemaFK) => {
 	stmt += `CREATE TABLE ${parent.table}(`;
 	stmt += schema
 		.map((field) => {
-			switch (field.ty) {
-				case DBTYPES.INT:
+			switch (field.dbtype) {
+				case DBTYPES.Int:
 					return `${field.name} INT UNSIGNED`;
-				case DBTYPES.TEXT:
+				case DBTYPES.Text:
 					return `${field.name} TINYTEXT`;
-				case DBTYPES.PK:
+				case DBTYPES.PrimaryKey:
 					return `${field.name} INT UNSIGNED PRIMARY KEY AUTO_INCREMENT`;
-				case DBTYPES.FK:
+				case DBTYPES.ForeignKey:
 					return `${field.name} INT UNSIGNED REFERENCES ${field.table}(${findid(field.child)})`;
 			}
 		})
@@ -345,14 +356,16 @@ const compileTables = traverseSchema<undefined>(createTable, createTable);
 /**
  * Drop a table
  * */
-const createDropTables = (...[, parent]: [Schema, SchemaFK, undefined]) => {
+const createDropTablesQuery = (
+	...[, parent]: [Schema, SchemaFK, undefined]
+) => {
 	return [`DROP TABLE ${parent.table};`];
 };
 
 /**
  * Create queries to drop all tables in a schema
  * */
-const dropTables = traverseSchema(createDropTables, createDropTables);
+const dropTables = traverseSchema(createDropTablesQuery, createDropTablesQuery);
 
 /**
  * Insert a testrun in the database

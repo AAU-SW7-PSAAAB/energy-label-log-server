@@ -19,7 +19,7 @@ const help = `
 /**
  * The valid argument keys of the server
  */
-const validArgs = [
+const multiArgs = [
 	"--host",
 	"--port",
 	"--mariadb-user",
@@ -32,7 +32,7 @@ const validArgs = [
 
 /**
  * The valid single arguments,
- * NOTE CREATE A CODITION AT THE END OF THIS FILE
+ * NOTE IF YOU CHANGE THIS THEN CREATE A CODITION AT THE END OF THIS FILE
  * */
 const singleArgs = [
 	"--help",
@@ -44,7 +44,7 @@ const singleArgs = [
 /**
  * The literal type of valid argument keys of the server
  */
-type ValidArgs = (typeof validArgs)[number];
+type ValidArgs = (typeof multiArgs)[number];
 
 /**
  * The object type containing cli arguments
@@ -57,7 +57,7 @@ type CliArgs = { [key in ValidArgs]: string | null };
 export class Cli {
 	private args: CliArgs;
 	constructor(args: string[]) {
-		this.args = validArgs.reduce(
+		this.args = multiArgs.reduce(
 			(a, v) => ({ ...a, [v]: null }),
 			{},
 		) as CliArgs;
@@ -69,7 +69,7 @@ export class Cli {
 				continue;
 			}
 
-			if (!validArgs.includes(key as ValidArgs)) {
+			if (!multiArgs.includes(key as ValidArgs)) {
 				console.error(
 					`${key} is not a valid key, ensure the argument is of the form --key=value.` +
 						`Use --help to get a list of valid arguments`,
@@ -122,6 +122,8 @@ class Default {
 	}
 }
 
+// process.argv.slice(2) because processs.argv is
+// /path/to/node /path/to/mainfile.js ...args
 export default new Cli(process.argv.slice(2));
 
 /**

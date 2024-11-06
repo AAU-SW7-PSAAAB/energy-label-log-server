@@ -15,6 +15,10 @@ export async function main() {
 	const port = Number(cli.default("3000").get("--port"));
 	const host = cli.default("localhost").get("--host");
 
+	if (isNaN(port)) {
+		throw Error("Port must be a number");
+	}
+
 	const app = Fastify({ logger: true });
 
 	app.setValidatorCompiler(validatorCompiler);
