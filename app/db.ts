@@ -308,12 +308,8 @@ const insertRun = traverseSchema<Run>(
 		const [keys, values] = keysAndValues(schema, run);
 
 		stmt +=
-			`INSERT INTO ${parent.table} (${keys.join(",")}) SELECT ${values.join(",")} 
-			WHERE NOT EXISTS (SELECT 1 FROM ${parent.table} WHERE ${createWhere(parent.child, run)} LIMIT 1);`.replace(
-				/\s+/g,
-				" ",
-			);
-
+			`INSERT INTO ${parent.table} (${keys.join(",")}) SELECT ${values.join(",")}` +
+			`WHERE NOT EXISTS (SELECT 1 FROM ${parent.table} WHERE ${createWhere(parent.child, run)} LIMIT 1);`;
 		return [stmt];
 	},
 );
