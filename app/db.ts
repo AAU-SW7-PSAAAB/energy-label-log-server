@@ -82,7 +82,7 @@ const schema: Schema = [
 			{ dbtype: DBTYPES.Text, name: "version", runkey: "browserVersion" },
 			{
 				dbtype: DBTYPES.ForeignKey,
-				name: "browser_version",
+				name: "browser_name_id",
 				table: Tables.BrowserName,
 				child: [
 					{ dbtype: DBTYPES.PrimaryKey, name: "id" },
