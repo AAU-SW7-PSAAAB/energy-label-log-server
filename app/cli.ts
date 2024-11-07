@@ -14,6 +14,8 @@ const help = `
 --mariadb-host=<value> :: Sets the port of the mariadb connection (default = localhost)
 --mariadb-init :: Initializes the database
 --mariadb-column-store=<bool> :: Sets the storage to column store in --mariadb-init (default = true)
+--mariadb-unsafe-drop-tables :: UNSAFE: Drops all tables in the database
+--mariadb-insert-test-run :: Inserts a testrun in the database
 `;
 
 /**
@@ -44,32 +46,32 @@ const singleArgs = [
 /**
  * The literal type of valid argument keys of the server
  */
-type ValidArgs = (typeof multiArgs)[number];
+type MultiArgs = (typeof multiArgs)[number];
 
 /**
  * The object type containing cli arguments
  */
-type CliArgs = { [key in ValidArgs]: string | null };
+type CliArgs = { [key in MultiArgs]: string | null };
 
 /**
  * The class responcible for handeling commandline arguments
  */
 export class Cli {
 	private args: CliArgs;
-	constructor(args: string[]) {
+	constructor(cliInput: string[]) {
 		this.args = multiArgs.reduce(
 			(a, v) => ({ ...a, [v]: null }),
 			{},
 		) as CliArgs;
 
-		for (const arg of args) {
+		for (const arg of cliInput) {
 			const [key, value] = arg.split("=");
 
 			if (singleArgs.includes(key)) {
 				continue;
 			}
 
-			if (!multiArgs.includes(key as ValidArgs)) {
+			if (!multiArgs.includes(key as MultiArgs)) {
 				console.error(
 					`${key} is not a valid key, ensure the argument is of the form --key=value.` +
 						`Use --help to get a list of valid arguments`,
@@ -84,22 +86,22 @@ export class Cli {
 				process.exit(1);
 			}
 
-			this.args[key as ValidArgs] = value;
+			this.args[key as MultiArgs] = value;
 		}
 	}
 
 	/**
 	 * Set the default value before getting an arguemt
 	 */
-	default(value: string) {
-		return new Default(this.args, value);
+	fallback(value: string) {
+		return new Fallback(this.args, value);
 	}
 }
 
 /**
  * Set the default value if the argument is not set
  */
-class Default {
+class Fallback {
 	private args: CliArgs;
 	private default: string;
 	constructor(args: CliArgs, def: string) {
@@ -110,7 +112,7 @@ class Default {
 	/**
 	 * Get a commandline argument, if it is not set return the default value
 	 */
-	get(...fields: ValidArgs[]) {
+	get(...fields: MultiArgs[]) {
 		for (const argument of fields) {
 			const value = this.args[argument];
 			if (value !== null) {

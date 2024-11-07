@@ -131,11 +131,11 @@ export default class DB {
 	 * Create a connection pool
 	 * */
 	private connect() {
-		const user = cli.default("energylabel").get("--mariadb-user");
-		const password = cli.default("energylabel").get("--mariadb-password");
-		const database = cli.default("energylabel").get("--mariadb-database");
-		const host = cli.default("localhost").get("--mariadb-host");
-		const port: number = Number(cli.default("3306").get("--mariadb-port"));
+		const user = cli.fallback("energylabel").get("--mariadb-user");
+		const password = cli.fallback("energylabel").get("--mariadb-password");
+		const database = cli.fallback("energylabel").get("--mariadb-database");
+		const host = cli.fallback("localhost").get("--mariadb-host");
+		const port: number = Number(cli.fallback("3306").get("--mariadb-port"));
 
 		if (isNaN(port)) throw Error("Mariadb port must be a number");
 
@@ -335,7 +335,7 @@ const createTable = (schema: Schema, parent: SchemaFK) => {
 		})
 		.join(",");
 	stmt += `)`;
-	if (cli.default("true").get("--mariadb-column-store") === "true") {
+	if (cli.fallback("true").get("--mariadb-column-store") === "true") {
 		stmt += "ENGINE = ColumnStore;";
 	} else {
 		stmt += ";";
@@ -350,9 +350,9 @@ const createTable = (schema: Schema, parent: SchemaFK) => {
 const compileTables = traverseSchema<undefined>(createTable, createTable);
 
 /**
- * Drop a table
+ * Create a drop table query
  * */
-const createDropTablesQuery = (
+const createDropTableQuery = (
 	...[, parent]: [Schema, SchemaFK, undefined]
 ) => {
 	return [`DROP TABLE ${parent.table};`];
@@ -361,7 +361,7 @@ const createDropTablesQuery = (
 /**
  * Create queries to drop all tables in a schema
  * */
-const dropTables = traverseSchema(createDropTablesQuery, createDropTablesQuery);
+const dropTables = traverseSchema(createDropTableQuery, createDropTableQuery);
 
 /**
  * Insert a testrun in the database
