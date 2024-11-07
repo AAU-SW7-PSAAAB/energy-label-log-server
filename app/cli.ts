@@ -110,7 +110,7 @@ class Fallback {
 	}
 
 	/**
-	 * Get a commandline argument, if it is not set return the default value
+	 * Get a commandline argument, if it is not set return the fallback value
 	 */
 	get(...fields: MultiArgs[]) {
 		for (const argument of fields) {
