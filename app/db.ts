@@ -352,9 +352,7 @@ const compileTables = traverseSchema<undefined>(createTable, createTable);
 /**
  * Create a drop table query
  * */
-const createDropTableQuery = (
-	...[, parent]: [Schema, SchemaFK, undefined]
-) => {
+const createDropTableQuery = (...[, parent]: [Schema, SchemaFK, undefined]) => {
 	return [`DROP TABLE ${parent.table};`];
 };
 
