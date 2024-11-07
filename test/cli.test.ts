@@ -7,14 +7,14 @@ describe("CLI Arguments", () => {
 	const args = ["--host=localhost"];
 	it("Can read parse arguments", () => {
 		const cli = new Cli(args);
-		const val = cli.default("Not specified").get("--host");
+		const val = cli.fallback("Not specified").get("--host");
 		assert.strictEqual(val, "localhost");
 	});
 
-	it("Can set default values", () => {
+	it("Can set fallback values", () => {
 		const cli = new Cli([]);
 		const def = "127.0.0.2";
-		const val = cli.default(def).get("--host");
+		const val = cli.fallback(def).get("--host");
 
 		assert.strictEqual(val, def);
 	});
