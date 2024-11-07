@@ -1,6 +1,6 @@
 # energy-label-log-server
 
-A loggin server to log data from runs of the energy label extention.
+A logging server to log data from runs of the energy label extension.
 
 # Setup
 ```
