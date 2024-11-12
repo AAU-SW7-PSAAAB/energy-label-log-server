@@ -385,7 +385,11 @@ function createTable<T>(schema: Schema<T>, parent: SchemaFK<T>) {
 /**
  * Create queries to create all tables in the schema
  * */
-const compileTables = traverseSchema<Run, object>(createTable, createTable, true);
+const compileTables = traverseSchema<Run, object>(
+	createTable,
+	createTable,
+	true,
+);
 
 /**
  * Create a drop table query
