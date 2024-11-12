@@ -12,8 +12,8 @@ import { log } from "./log.js";
 export async function main() {
 	await checkSingleArgs();
 
-	const port = Number(cli.default("3000").get("--port"));
-	const host = cli.default("localhost").get("--host");
+	const port = Number(cli.fallback("3000").get("--port"));
+	const host = cli.fallback("localhost").get("--host");
 
 	if (isNaN(port)) {
 		throw Error("Port must be a number");

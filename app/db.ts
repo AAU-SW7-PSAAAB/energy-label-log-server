@@ -15,21 +15,23 @@ enum Tables {
 	BrowserName = "BrowserName",
 	Browser = "Browser",
 	Domain = "Domain",
+	ErrorMessage = "ErrorMessage",
 	Url = "Url",
 	Fact = "Fact",
 }
 
-type SchemaFK = {
+type SchemaFK<T> = {
 	dbtype: DBTYPES.ForeignKey;
 	name: string;
 	table: Tables;
-	child: Schema;
+	child: Schema<T>;
+	optional?: keyof T;
 };
 
-type Schema = Array<
-	| { dbtype: DBTYPES.Int; name: string; runkey: keyof Run }
-	| { dbtype: DBTYPES.Text; name: string; runkey: keyof Run }
-	| SchemaFK
+type Schema<T> = Array<
+	| { dbtype: DBTYPES.Int; name: string; runkey: keyof T }
+	| { dbtype: DBTYPES.Text; name: string; runkey: keyof T }
+	| SchemaFK<T>
 	| { dbtype: DBTYPES.PrimaryKey; name: string }
 >;
 
@@ -43,9 +45,23 @@ function sanitize(s: string) {
 /**
  * A Rrepresentation of the tabels in the database
  * */
-const schema: Schema = [
+const schema: Schema<Run> = [
 	{ dbtype: DBTYPES.Int, name: "score", runkey: "score" },
 	{ dbtype: DBTYPES.Int, name: "status_code", runkey: "statusCode" },
+	{
+		dbtype: DBTYPES.ForeignKey,
+		name: "error_message",
+		table: Tables.ErrorMessage,
+		optional: "errorMessage",
+		child: [
+			{ dbtype: DBTYPES.PrimaryKey, name: "id" },
+			{
+				dbtype: DBTYPES.Text,
+				name: "error_message",
+				runkey: "errorMessage",
+			},
+		],
+	},
 	{
 		dbtype: DBTYPES.ForeignKey,
 		name: "plugin_id",
@@ -115,7 +131,7 @@ const schema: Schema = [
 	},
 ];
 
-const dummyParent: SchemaFK = {
+const dummyParent: SchemaFK<Run> = {
 	dbtype: DBTYPES.ForeignKey,
 	name: "fact",
 	table: Tables.Fact,
@@ -173,7 +189,7 @@ export default class DB {
 	 * Initialize tables in database
 	 * */
 	async init() {
-		const queries = compileTables(schema, dummyParent, undefined);
+		const queries = compileTables(schema, dummyParent, {});
 		await this.query(queries);
 	}
 
@@ -192,7 +208,7 @@ export default class DB {
 	 * This function WILL delete all data in the database
 	 * */
 	async dropTables() {
-		const query = dropTables(schema, dummyParent, undefined).reverse();
+		const query = dropTables(schema, dummyParent, {}).reverse();
 		await this.query(query);
 	}
 }
@@ -200,7 +216,7 @@ export default class DB {
 /**
  * Gets name of id in child schema
  * */
-function findid(schema: Schema) {
+function findid<T>(schema: Schema<T>) {
 	for (const field of schema) {
 		if (field.dbtype === DBTYPES.PrimaryKey) {
 			return field.name;
@@ -214,7 +230,7 @@ function findid(schema: Schema) {
  * Returns [keys, values] of a schema based on the values of in a Run
  * */
 function keysAndValues(
-	schema: Schema,
+	schema: Schema<Run>,
 	run: Run,
 ): [Array<string>, Array<string>] {
 	const keys = schema
@@ -233,9 +249,20 @@ function keysAndValues(
 			switch (field.dbtype) {
 				case DBTYPES.PrimaryKey:
 					return "";
-				case DBTYPES.Text:
 				case DBTYPES.Int:
-					return "'" + sanitize(run[field.runkey].toString()) + "'";
+					return (
+						"'" +
+						sanitize(
+							((run[field.runkey] as number) ?? 0).toString(),
+						) +
+						"'"
+					);
+				case DBTYPES.Text:
+					return (
+						"'" +
+						sanitize((run[field.runkey] as string) ?? "NULL") +
+						"'"
+					);
 				case DBTYPES.ForeignKey:
 					return `(SELECT id FROM ${field.table} WHERE ${createWhere(field.child, run)} LIMIT 1)`;
 			}
@@ -250,18 +277,28 @@ function keysAndValues(
  * fact: Command special to the facttable
  * child: Command special to all children
  * */
-function traverseSchema<T>(
-	fact: (schema: Schema, parent: SchemaFK, val: T) => string[],
-	child: (schema: Schema, parent: SchemaFK, val: T) => string[],
+function traverseSchema<S, V extends object>(
+	fact: (schema: Schema<S>, parent: SchemaFK<S>, val: V) => string[],
+	child: (schema: Schema<S>, parent: SchemaFK<S>, val: V) => string[],
+	allwaysExtend: boolean,
 ) {
-	return (schema: Schema, parent: SchemaFK, val: T) => {
+	return (schema: Schema<S>, parent: SchemaFK<S>, val: V) => {
 		let stmt: Array<string> = [];
 		// TRAVERSE CHILDREN
 		for (const field of schema) {
-			if (field.dbtype === DBTYPES.ForeignKey) {
+			if (
+				field.dbtype === DBTYPES.ForeignKey &&
+				(allwaysExtend ||
+					field.optional === undefined ||
+					field.optional in val)
+			) {
 				stmt = [
 					...stmt,
-					...traverseSchema(child, child)(field.child, field, val),
+					...traverseSchema(child, child, allwaysExtend)(
+						field.child,
+						field,
+						val,
+					),
 				];
 			}
 		}
@@ -274,14 +311,14 @@ function traverseSchema<T>(
 /**
  * Create the where clause of a child schema
  * */
-function createWhere(schema: Schema, run: Run): string {
+function createWhere<T>(schema: Schema<T>, run: T): string {
 	return schema
 		.map((field) => {
 			switch (field.dbtype) {
 				case DBTYPES.Int:
-					return `${field.name}='${run[field.runkey]}'`;
+					return `${field.name}='${sanitize((run[field.runkey] ?? 0).toString())}'`;
 				case DBTYPES.Text:
-					return `${field.name}='${sanitize(run[field.runkey] as string)}'`;
+					return `${field.name}='${sanitize((run[field.runkey] ?? "NULL").toString())}'`;
 				case DBTYPES.ForeignKey:
 					return `${field.name}=(SELECT id FROM ${field.table} WHERE ${createWhere(field.child, run)} LIMIT 1)`;
 				case DBTYPES.PrimaryKey:
@@ -295,7 +332,7 @@ function createWhere(schema: Schema, run: Run): string {
 /**
  * Insert a run in to the database
  * */
-const insertRun = traverseSchema<Run>(
+const insertRun = traverseSchema<Run, Run>(
 	(schema, parent, run) => {
 		const [keys, values] = keysAndValues(schema, run);
 		return [
@@ -312,12 +349,13 @@ const insertRun = traverseSchema<Run>(
 			`WHERE NOT EXISTS (SELECT 1 FROM ${parent.table} WHERE ${createWhere(parent.child, run)} LIMIT 1);`;
 		return [stmt];
 	},
+	false,
 );
 
 /**
  * Create a  single table
  * */
-const createTable = (schema: Schema, parent: SchemaFK) => {
+function createTable<T>(schema: Schema<T>, parent: SchemaFK<T>) {
 	let stmt = "";
 	stmt += `CREATE TABLE ${parent.table}(`;
 	stmt += schema
@@ -342,24 +380,34 @@ const createTable = (schema: Schema, parent: SchemaFK) => {
 	}
 
 	return [stmt];
-};
+}
 
 /**
  * Create queries to create all tables in the schema
  * */
-const compileTables = traverseSchema<undefined>(createTable, createTable);
+const compileTables = traverseSchema<Run, object>(
+	createTable,
+	createTable,
+	true,
+);
 
 /**
  * Create a drop table query
  * */
-const createDropTableQuery = (...[, parent]: [Schema, SchemaFK, undefined]) => {
+const createDropTableQuery = <T>(
+	...[, parent]: [Schema<T>, SchemaFK<T>, object]
+) => {
 	return [`DROP TABLE ${parent.table};`];
 };
 
 /**
  * Create queries to drop all tables in a schema
  * */
-const dropTables = traverseSchema(createDropTableQuery, createDropTableQuery);
+const dropTables = traverseSchema(
+	createDropTableQuery,
+	createDropTableQuery,
+	true,
+);
 
 /**
  * Insert a testrun in the database
@@ -367,7 +415,8 @@ const dropTables = traverseSchema(createDropTableQuery, createDropTableQuery);
 export async function insertTestRun() {
 	const run: Run = {
 		score: 10,
-		statusCode: 10000 as StatusCodes,
+		statusCode: StatusCodes.TestRun,
+		errorMessage: "IT'S A TEST :)",
 		browserName: "TestBrowser",
 		browserVersion: "t1.234",
 		pluginVersion: "t1.23.415",
@@ -377,5 +426,17 @@ export async function insertTestRun() {
 		extensionVersion: "0.0.1",
 	};
 
-	await new DB().insertRuns(run);
+	const run2: Run = {
+		score: 10,
+		statusCode: StatusCodes.TestRun,
+		browserName: "TestBrowser",
+		browserVersion: "t1.234",
+		pluginVersion: "t1.23.415",
+		pluginName: "DBTest",
+		path: "/db/test",
+		url: "https://testdb.aau.dk",
+		extensionVersion: "0.0.1",
+	};
+
+	await new DB().insertRuns(run, run2);
 }
