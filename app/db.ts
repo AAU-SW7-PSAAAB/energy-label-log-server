@@ -277,12 +277,12 @@ function keysAndValues(
  * fact: Command special to the facttable
  * child: Command special to all children
  * */
-function traverseSchema<T extends object>(
-	fact: (schema: Schema<T>, parent: SchemaFK<T>, val: T) => string[],
-	child: (schema: Schema<T>, parent: SchemaFK<T>, val: T) => string[],
+function traverseSchema<S, V extends object>(
+	fact: (schema: Schema<S>, parent: SchemaFK<S>, val: V) => string[],
+	child: (schema: Schema<S>, parent: SchemaFK<S>, val: V) => string[],
 	allwaysExtend: boolean,
 ) {
-	return (schema: Schema<T>, parent: SchemaFK<T>, val: T) => {
+	return (schema: Schema<S>, parent: SchemaFK<S>, val: V) => {
 		let stmt: Array<string> = [];
 		// TRAVERSE CHILDREN
 		for (const field of schema) {
@@ -332,7 +332,7 @@ function createWhere<T>(schema: Schema<T>, run: T): string {
 /**
  * Insert a run in to the database
  * */
-const insertRun = traverseSchema<Run>(
+const insertRun = traverseSchema<Run, Run>(
 	(schema, parent, run) => {
 		const [keys, values] = keysAndValues(schema, run);
 		return [
@@ -385,7 +385,7 @@ function createTable<T>(schema: Schema<T>, parent: SchemaFK<T>) {
 /**
  * Create queries to create all tables in the schema
  * */
-const compileTables = traverseSchema<object>(createTable, createTable, true);
+const compileTables = traverseSchema<Run, object>(createTable, createTable, true);
 
 /**
  * Create a drop table query
