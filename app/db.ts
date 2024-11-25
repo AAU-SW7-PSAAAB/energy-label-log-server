@@ -153,7 +153,7 @@ export default class DB {
 		const host = cli.fallback("localhost").get("--mariadb-host");
 		const port: number = Number(cli.fallback("3306").get("--mariadb-port"));
 		const connLimit: number = Number(
-			cli.fallback("3306").get("--mariadb-conn-limit"),
+			cli.fallback("100").get("--mariadb-conn-limit"),
 		);
 
 		if (isNaN(port)) throw Error("mariadb-port must be a number");
