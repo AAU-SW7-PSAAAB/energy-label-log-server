@@ -152,7 +152,7 @@ export default class DB {
 		const database = cli.fallback("energylabel").get("--mariadb-database");
 		const host = cli.fallback("localhost").get("--mariadb-host");
 		const port: number = Number(cli.fallback("3306").get("--mariadb-port"));
-		const connLimit: number = Number(cli.fallback("3306").get());
+		const connLimit: number = Number(cli.fallback("3306").get("--mariadb-conn-limit"));
 
 		if (isNaN(port)) throw Error("mariadb-port must be a number");
 		if (isNaN(connLimit))
