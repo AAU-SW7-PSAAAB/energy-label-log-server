@@ -34,9 +34,10 @@ export async function main() {
 				200: z.string,
 			},
 		},
-		handler: (request) => {
+		handler: (request, reply) => {
 			const body = request.body;
 			log(body);
+			reply.status(200).send();
 		},
 	});
 
