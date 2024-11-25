@@ -152,8 +152,11 @@ export default class DB {
 		const database = cli.fallback("energylabel").get("--mariadb-database");
 		const host = cli.fallback("localhost").get("--mariadb-host");
 		const port: number = Number(cli.fallback("3306").get("--mariadb-port"));
+		const connLimit: number = Number(cli.fallback("3306").get());
 
-		if (isNaN(port)) throw Error("Mariadb port must be a number");
+		if (isNaN(port)) throw Error("mariadb-port must be a number");
+		if (isNaN(connLimit))
+			throw Error("mariadb-conn-limit must be a number");
 
 		return mariadb.createPool({
 			user: user,
@@ -161,7 +164,7 @@ export default class DB {
 			port: port,
 			password: password,
 			database: database,
-			connectionLimit: 5,
+			connectionLimit: connLimit,
 		});
 	}
 
@@ -345,7 +348,7 @@ const insertRun = traverseSchema<Run, Run>(
 		const [keys, values] = keysAndValues(schema, run);
 
 		stmt +=
-			`INSERT INTO ${parent.table} (${keys.join(",")}) SELECT ${values.join(",")}` +
+			`INSERT INTO ${parent.table} (${keys.join(",")}) SELECT ${values.join(",")} ` +
 			`WHERE NOT EXISTS (SELECT 1 FROM ${parent.table} WHERE ${createWhere(parent.child, run)} LIMIT 1);`;
 		return [stmt];
 	},

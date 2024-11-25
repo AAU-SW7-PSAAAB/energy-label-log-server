@@ -8,9 +8,12 @@ import {
 import z from "zod";
 import { run } from "energy-label-types";
 import { log } from "./log.js";
+import DB from "./db.js";
 
 export async function main() {
 	await checkSingleArgs();
+
+	const db = new DB();
 
 	const port = Number(cli.fallback("3000").get("--port"));
 	const host = cli.fallback("localhost").get("--host");
@@ -36,7 +39,7 @@ export async function main() {
 		},
 		handler: (request, reply) => {
 			const body = request.body;
-			log(body);
+			log(db, body);
 			reply.status(200).send();
 		},
 	});
