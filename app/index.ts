@@ -44,10 +44,8 @@ export async function main() {
 				await log(db, body);
 				reply.status(200).send();
 			} catch (e) {
-				if ( e instanceof SqlError )
-					reply.status(500).send(e);
-				else
-					reply.status(400).send(e);
+				if (e instanceof SqlError) reply.status(500).send(e);
+				else reply.status(400).send(e);
 			}
 		},
 	});

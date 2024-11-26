@@ -8,6 +8,6 @@ export async function log(db: DB, run: Run | Run[]) {
 	if (!Array.isArray(run)) {
 		run = [run];
 	}
-	const parsedruns = run.map(r => zrun.parse(r));
+	const parsedruns = run.map((r) => zrun.parse(r));
 	await db.insertRuns(...parsedruns);
 }
