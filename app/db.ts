@@ -185,6 +185,7 @@ export default class DB {
 		} catch (e) {
 			console.error(e);
 			if (conn !== null) await conn.rollback();
+			throw e;
 		} finally {
 			if (conn !== null) await conn.end();
 		}
