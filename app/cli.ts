@@ -6,16 +6,17 @@ import DB, { insertTestRun } from "./db.js";
 const help = `
 --help         :: Prints this message
 --host=<value> :: Sets the host of the server (default = 127.0.0.1)
---port=<value> :: Sets the port of the server (default = 3000)
---mariadb-user=<value>     :: Sets the user of the mariadb connection (default = energylabel)
---mariadb-password=<value> :: Sets the password of the mariadb connection (default = energylabel)
---mariadb-database=<value> :: Sets the database of the mariadb connection (default = energylabel)
---mariadb-port=<value> :: Sets the port of the mariadb connection (default = 3306)
+--port=<number> :: Sets the port of the server (default = 3000)
+--mariadb-user=<value>     :: Sets the user of the MariaDB connection (default = energylabel)
+--mariadb-password=<value> :: Sets the password of the MariaDB connection (default = energylabel)
+--mariadb-database=<value> :: Sets the database of the MariaDB connection (default = energylabel)
+--mariadb-port=<number> :: Sets the port of the mariadb connection (default = 3306)
 --mariadb-host=<value> :: Sets the port of the mariadb connection (default = localhost)
 --mariadb-init :: Initializes the database
 --mariadb-column-store=<bool> :: Sets the storage to column store in --mariadb-init (default = true)
 --mariadb-unsafe-drop-tables :: UNSAFE: Drops all tables in the database
 --mariadb-insert-test-run :: Inserts a testrun in the database
+--mariadb-conn-limit=<number> :: Limit the number of connections the server is allowed to make to the MariaDB database (default = 50) 
 `;
 
 /**
@@ -30,6 +31,7 @@ const multiArgs = [
 	"--mariadb-port",
 	"--mariadb-host",
 	"--mariadb-column-store",
+	"--mariadb-conn-limit",
 ] as const;
 
 /**

@@ -8,9 +8,13 @@ import {
 import z from "zod";
 import { run } from "energy-label-types";
 import { log } from "./log.js";
+import DB from "./db.js";
+import { SqlError } from "mariadb";
 
 export async function main() {
 	await checkSingleArgs();
+
+	const db = new DB();
 
 	const port = Number(cli.fallback("3000").get("--port"));
 	const host = cli.fallback("localhost").get("--host");
@@ -34,10 +38,15 @@ export async function main() {
 				200: z.string,
 			},
 		},
-		handler: (request, reply) => {
+		handler: async (request, reply) => {
 			const body = request.body;
-			log(body);
-			reply.status(200).send();
+			try {
+				await log(db, body);
+				reply.status(200).send();
+			} catch (e) {
+				if (e instanceof SqlError) reply.status(500).send(e);
+				else reply.status(400).send(e);
+			}
 		},
 	});
 
