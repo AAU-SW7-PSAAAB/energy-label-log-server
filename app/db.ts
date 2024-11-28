@@ -2,13 +2,14 @@ import cli from "./cli.js";
 import mariadb from "mariadb";
 import { Run, StatusCodes } from "energy-label-types";
 import { exit } from "process";
+import { Schema } from "zod";
 
 enum DBTYPES {
 	Int,
 	Text,
 	ForeignKey,
-	PrimaryKey,
 }
+
 enum Tables {
 	PluginName = "PluginName",
 	Plugin = "Plugin",
@@ -20,10 +21,49 @@ enum Tables {
 	Fact = "Fact",
 }
 
+type Results<T> = { [x in Tables]?: T };
+type SurogateKeys = { [x in Exclude<Tables, Tables.Fact>]: number };
+
+class SurogateKeyBank {
+	cache: Record<string, number> = {};
+	constructor() {}
+	private keys: SurogateKeys = {
+		[Tables.Url]: 0,
+		[Tables.Domain]: 0,
+		[Tables.Browser]: 0,
+		[Tables.BrowserName]: 0,
+		[Tables.Plugin]: 0,
+		[Tables.PluginName]: 0,
+		[Tables.ErrorMessage]: 0,
+	};
+
+	set<K extends keyof SurogateKeys>(key: K, value: SurogateKeys[K]) {
+		this.keys[key] = value;
+	}
+
+	request<K extends keyof SurogateKeys>(
+		key: K,
+		value: string,
+	): SurogateKeys[K] {
+		const cacheKey = key + value;
+		if (cacheKey in this.cache) return this.cache[cacheKey];
+
+		const newKey = ++this.keys[key];
+
+		this.cache[cacheKey] = newKey;
+		setTimeout(() => {
+			delete this.cache[cacheKey];
+		}, 100000);
+
+		return newKey;
+	}
+}
+
 type SchemaFK<T> = {
 	dbtype: DBTYPES.ForeignKey;
 	name: string;
 	table: Tables;
+	child_key: string;
 	child: Schema<T>;
 	optional?: keyof T;
 };
@@ -32,7 +72,6 @@ type Schema<T> = Array<
 	| { dbtype: DBTYPES.Int; name: string; runkey: keyof T }
 	| { dbtype: DBTYPES.Text; name: string; runkey: keyof T }
 	| SchemaFK<T>
-	| { dbtype: DBTYPES.PrimaryKey; name: string }
 >;
 
 /**
@@ -53,8 +92,8 @@ const schema: Schema<Run> = [
 		name: "error_message",
 		table: Tables.ErrorMessage,
 		optional: "errorMessage",
+		child_key: "id",
 		child: [
-			{ dbtype: DBTYPES.PrimaryKey, name: "id" },
 			{
 				dbtype: DBTYPES.Text,
 				name: "error_message",
@@ -66,8 +105,8 @@ const schema: Schema<Run> = [
 		dbtype: DBTYPES.ForeignKey,
 		name: "plugin_id",
 		table: Tables.Plugin,
+		child_key: "id",
 		child: [
-			{ dbtype: DBTYPES.PrimaryKey, name: "id" },
 			{ dbtype: DBTYPES.Text, name: "version", runkey: "pluginVersion" },
 			{
 				dbtype: DBTYPES.Text,
@@ -78,8 +117,8 @@ const schema: Schema<Run> = [
 				dbtype: DBTYPES.ForeignKey,
 				name: "plugin_name_id",
 				table: Tables.PluginName,
+				child_key: "id",
 				child: [
-					{ dbtype: DBTYPES.PrimaryKey, name: "id" },
 					{
 						dbtype: DBTYPES.Text,
 						name: "name",
@@ -93,15 +132,15 @@ const schema: Schema<Run> = [
 		dbtype: DBTYPES.ForeignKey,
 		name: "browser_id",
 		table: Tables.Browser,
+		child_key: "id",
 		child: [
-			{ dbtype: DBTYPES.PrimaryKey, name: "id" },
 			{ dbtype: DBTYPES.Text, name: "version", runkey: "browserVersion" },
 			{
 				dbtype: DBTYPES.ForeignKey,
 				name: "browser_name_id",
 				table: Tables.BrowserName,
+				child_key: "id",
 				child: [
-					{ dbtype: DBTYPES.PrimaryKey, name: "id" },
 					{
 						dbtype: DBTYPES.Text,
 						name: "browser_name",
@@ -115,15 +154,15 @@ const schema: Schema<Run> = [
 		dbtype: DBTYPES.ForeignKey,
 		name: "url_id",
 		table: Tables.Url,
+		child_key: "id",
 		child: [
-			{ dbtype: DBTYPES.PrimaryKey, name: "id" },
 			{ dbtype: DBTYPES.Text, name: "path", runkey: "path" },
 			{
 				dbtype: DBTYPES.ForeignKey,
 				name: "domain_id",
 				table: Tables.Domain,
+				child_key: "id",
 				child: [
-					{ dbtype: DBTYPES.PrimaryKey, name: "id" },
 					{ dbtype: DBTYPES.Text, name: "domain", runkey: "url" },
 				],
 			},
@@ -135,14 +174,34 @@ const dummyParent: SchemaFK<Run> = {
 	dbtype: DBTYPES.ForeignKey,
 	name: "fact",
 	table: Tables.Fact,
+	child_key: "id",
 	child: schema,
 };
 
 export default class DB {
 	private pool: mariadb.Pool;
+	private keys = new SurogateKeyBank();
+	static async new(): Promise<DB> {
+		return await new DB().initKeys();
+	}
+
 	constructor() {
 		this.pool = this.connect();
 	}
+
+	/**
+	 * Initializes the keytables to match the databse
+	 *
+	 * */
+	private async initKeys(): Promise<DB> {
+		const query = initKeys(schema, dummyParent, {});
+		const result = await this.query(query, (a) => a.id);
+		Object.entries(result)
+			.map(([k, r]) => [k, r] as [keyof SurogateKeys, number])
+			.forEach((a) => this.keys.set(...a));
+		return this;
+	}
+
 	/**
 	 * Create a connection pool
 	 * */
@@ -173,15 +232,29 @@ export default class DB {
 	/**
 	 * Pipeline a list of commands
 	 * */
-	private async query(queries: string[]) {
-		let conn: mariadb.Connection | null = null;
+	private async query<T>(
+		queries: TraverseReturn,
+		map: (a: any) => T = (a) => a,
+	): Promise<Results<T>> {
+		let conn: mariadb.PoolConnection | null = null;
 		try {
 			conn = await this.pool.getConnection();
 			conn.beginTransaction();
-			for (const query of queries) {
-				await conn.query(query);
-			}
+
+			let results = (await Promise.all(
+				Object.entries(queries).map(([k, q]) =>
+					(conn as mariadb.PoolConnection)
+						.query(q)
+						.then((res) => [k, map(res)]),
+				),
+			)) as [Tables, any][];
+
 			await conn.commit();
+
+			return results.reduce((p, [k, q]) => {
+				p[k] = q;
+				return p;
+			}, {} as Results<any>);
 		} catch (e) {
 			console.error(e);
 			if (conn !== null) await conn.rollback();
@@ -203,10 +276,13 @@ export default class DB {
 	 * Insert runs into the database
 	 * */
 	async insertRuns(...runs: Run[]) {
-		const query = runs.flatMap((run) =>
-			insertRun(schema, dummyParent, run),
-		);
-		await this.query(query);
+		const self = this;
+		async function $insertRun(run: Run) {
+			const keys = await self.query(
+				getKeys(schema, dummyParent, run),
+				(a) => a.id as number,
+			);
+		}
 	}
 
 	/**
@@ -214,69 +290,49 @@ export default class DB {
 	 * This function WILL delete all data in the database
 	 * */
 	async dropTables() {
-		const query = dropTables(schema, dummyParent, {}).reverse();
+		const query = dropTables(schema, dummyParent, {});
 		await this.query(query);
 	}
 }
 
 /**
- * Gets name of id in child schema
- * */
-function findid<T>(schema: Schema<T>) {
-	for (const field of schema) {
-		if (field.dbtype === DBTYPES.PrimaryKey) {
-			return field.name;
-		}
-	}
-	console.error("A foreing key must be able to reference a primary key");
-	exit(1);
-}
-
-/**
  * Returns [keys, values] of a schema based on the values of in a Run
  * */
-function keysAndValues(
-	schema: Schema<Run>,
-	run: Run,
+function keysAndValues<T>(
+	schema: Schema<T>,
+	run: T,
+	surogateKeys: Results<number>,
+	bank: SurogateKeyBank,
 ): [Array<string>, Array<string>] {
-	const keys = schema
-		.map((field) => {
-			switch (field.dbtype) {
-				case DBTYPES.PrimaryKey:
-					return "";
-				default:
-					return field.name;
-			}
-		})
-		.filter((s) => s !== "");
+	const keys = schema.map((field) => field.name);
 
 	const values = schema
 		.map((field) => {
 			switch (field.dbtype) {
-				case DBTYPES.PrimaryKey:
-					return "";
 				case DBTYPES.Int:
-					return (
-						"'" +
-						sanitize(
-							((run[field.runkey] as number) ?? 0).toString(),
-						) +
-						"'"
-					);
+					return `'${(run[field.runkey] as number) ?? 0}'`;
 				case DBTYPES.Text:
-					return (
-						"'" +
-						sanitize((run[field.runkey] as string) ?? "NULL") +
-						"'"
-					);
+					return `'${sanitize((run[field.runkey] as string) ?? "NULL")}'`;
 				case DBTYPES.ForeignKey:
-					return `(SELECT id FROM ${field.table} WHERE ${createWhere(field.child, run)} LIMIT 1)`;
+					if (field.table === Tables.Fact) return;
+					return `'${
+						surogateKeys[field.table] ??
+						bank.request(
+							field.table,
+							field.child
+								.filter((a) => a.dbtype !== DBTYPES.ForeignKey)
+								.map((a) => run[a.runkey])
+								.join("#"),
+						)
+					}'`;
 			}
 		})
-		.filter((s) => s !== "");
+		.filter((a) => a !== undefined);
 
 	return [keys, values];
 }
+
+type TraverseReturn = { [key in Tables]?: string };
 
 /**
  * Run a recursive command on all tables in the schema
@@ -284,9 +340,9 @@ function keysAndValues(
  * child: Command special to all children
  * */
 function traverseSchema<S, V extends object>(
-	fact: (schema: Schema<S>, parent: SchemaFK<S>, val: V) => string[],
-	child: (schema: Schema<S>, parent: SchemaFK<S>, val: V) => string[],
-	allwaysExtend: boolean,
+	fact: (schema: Schema<S>, parent: SchemaFK<S>, val: V) => TraverseReturn,
+	child: (schema: Schema<S>, parent: SchemaFK<S>, val: V) => TraverseReturn,
+	allwaysExtend: boolean = false,
 ) {
 	return (schema: Schema<S>, parent: SchemaFK<S>, val: V) => {
 		let stmt: Array<string> = [];
@@ -298,19 +354,19 @@ function traverseSchema<S, V extends object>(
 					field.optional === undefined ||
 					field.optional in val)
 			) {
-				stmt = [
+				stmt = {
 					...stmt,
 					...traverseSchema(child, child, allwaysExtend)(
 						field.child,
 						field,
 						val,
 					),
-				];
+				};
 			}
 		}
 
 		// TRAVERSE SELF
-		return [...stmt, ...fact(schema, parent, val)];
+		return { ...stmt, ...fact(schema, parent, val) };
 	};
 }
 
@@ -326,44 +382,42 @@ function createWhere<T>(schema: Schema<T>, run: T): string {
 				case DBTYPES.Text:
 					return `${field.name}='${sanitize((run[field.runkey] ?? "NULL").toString())}'`;
 				case DBTYPES.ForeignKey:
-					return `${field.name}=(SELECT id FROM ${field.table} WHERE ${createWhere(field.child, run)} LIMIT 1)`;
-				case DBTYPES.PrimaryKey:
-					return "";
+					return `EXISTS (SELECT id FROM ${field.table} WHERE ${createWhere(field.child, run)} LIMIT 1)`;
 			}
 		})
-		.filter((s) => s !== "")
 		.join(" AND ");
 }
 
 /**
  * Insert a run in to the database
  * */
-const insertRun = traverseSchema<Run, Run>(
-	(schema, parent, run) => {
-		const [keys, values] = keysAndValues(schema, run);
-		return [
-			`INSERT INTO ${parent.table} (${keys.join(",")}) VALUES (${values.join(",")})`,
-		];
-	},
-	(schema, parent, run) => {
-		let stmt = "";
+const insertRun = (<T>() =>
+	traverseSchema<T, [T, Results<number>, SurogateKeyBank]>(
+		(schema, parent, [run, sorugateKeys]) => {
+			const [keys, values] = keysAndValues(schema, run);
+			return {
+				[parent.table]: `INSERT INTO ${parent.table} (${keys.join(",")}) VALUES (${values.join(",")})`,
+			};
+		},
+		(schema, parent, [run, sorugateKeys, bank]) => {
+			if (parent.table in sorugateKeys) return {};
+			let stmt = "";
 
-		const [keys, values] = keysAndValues(schema, run);
+			const [keys, values] = keysAndValues(schema, run, sorugateKeys, bank);
 
-		stmt +=
-			`INSERT INTO ${parent.table} (${keys.join(",")}) SELECT ${values.join(",")} ` +
-			`WHERE NOT EXISTS (SELECT 1 FROM ${parent.table} WHERE ${createWhere(parent.child, run)} LIMIT 1);`;
-		return [stmt];
-	},
-	false,
-);
+			stmt +=
+				`INSERT INTO ${parent.table} (${keys.join(",")}) SELECT ${values.join(",")} `
+			return { [parent.table]: stmt };
+		},
+		false,
+	))();
 
 /**
  * Create a  single table
  * */
 function createTable<T>(schema: Schema<T>, parent: SchemaFK<T>) {
 	let stmt = "";
-	stmt += `CREATE TABLE ${parent.table}(`;
+	stmt += `CREATE TABLE ${parent.table}( ${parent.child_key} INT UNSIGNED,`;
 	stmt += schema
 		.map((field) => {
 			switch (field.dbtype) {
@@ -371,10 +425,8 @@ function createTable<T>(schema: Schema<T>, parent: SchemaFK<T>) {
 					return `${field.name} INT UNSIGNED`;
 				case DBTYPES.Text:
 					return `${field.name} TINYTEXT`;
-				case DBTYPES.PrimaryKey:
-					return `${field.name} INT UNSIGNED PRIMARY KEY AUTO_INCREMENT`;
 				case DBTYPES.ForeignKey:
-					return `${field.name} INT UNSIGNED REFERENCES ${field.table}(${findid(field.child)})`;
+					return `${field.name} INT UNSIGNED`;
 			}
 		})
 		.join(",");
@@ -385,7 +437,7 @@ function createTable<T>(schema: Schema<T>, parent: SchemaFK<T>) {
 		stmt += ";";
 	}
 
-	return [stmt];
+	return { [parent.table]: stmt };
 }
 
 /**
@@ -403,7 +455,7 @@ const compileTables = traverseSchema<Run, object>(
 const createDropTableQuery = <T>(
 	...[, parent]: [Schema<T>, SchemaFK<T>, object]
 ) => {
-	return [`DROP TABLE ${parent.table};`];
+	return { [parent.table]: `DROP TABLE ${parent.table};` };
 };
 
 /**
@@ -413,6 +465,81 @@ const dropTables = traverseSchema(
 	createDropTableQuery,
 	createDropTableQuery,
 	true,
+);
+
+const initKeys = traverseSchema(
+	() => {
+		return {};
+	},
+	<T>(...[, parent]: [Schema<T>, SchemaFK<T>, object]) => {
+		return {
+			[parent.table]: `SELECT COALESCE(MAX(id), 0) AS id FROM ${parent.table}`,
+		};
+	},
+	true,
+);
+
+function innerJoin<T>(schema: Schema<T>, table: Tables) {
+	function $innerJoin<T>(schema: Schema<T>, table: Tables): string[] {
+		return schema
+			.filter((f) => f.dbtype === DBTYPES.ForeignKey)
+			.flatMap((f) => [
+				`INNER JOIN ${f.table} ON ${table}.${f.name}=${f.table}.${f.child_key}`,
+				...$innerJoin(f.child, f.table),
+			]);
+	}
+
+	return [table, ...$innerJoin(schema, table)].join(" ");
+}
+
+function joinWhere<T extends object>(
+	schema: Schema<T>,
+	table: Tables,
+	value: T,
+) {
+	function $joinWhere(schema: Schema<T>, table: Tables): string[] {
+		return schema.flatMap((f) => {
+			switch (f.dbtype) {
+				case DBTYPES.Int:
+					return [
+						`${table}.${f.name}='${value[f.runkey] ?? "NULL"}'`,
+					];
+				case DBTYPES.Text:
+					return [
+						`${table}.${f.name}='${sanitize((value[f.runkey] ?? "NULL") as string)}'`,
+					];
+				case DBTYPES.ForeignKey:
+					return $joinWhere(f.child, f.table);
+			}
+		});
+	}
+
+	return $joinWhere(schema, table).join(" AND ");
+}
+
+function getKeysQuery<T extends object>(
+	schema: Schema<T>,
+	table: Tables,
+	id_name: string,
+	value: T,
+) {
+	return `SELECT ${table}.${id_name} AS id FROM ${innerJoin(schema, table)} WHERE ${joinWhere(schema, table, value)}`;
+}
+
+const getKeys = traverseSchema(
+	() => {
+		return {};
+	},
+	<T extends object>(schema: Schema<T>, parent: SchemaFK<T>, value: T) => {
+		return {
+			[parent.table]: getKeysQuery(
+				schema,
+				parent.table,
+				parent.child_key,
+				value,
+			),
+		};
+	},
 );
 
 /**
@@ -444,5 +571,5 @@ export async function insertTestRun() {
 		extensionVersion: "0.0.1",
 	};
 
-	await new DB().insertRuns(run, run2);
+	await DB.new().then((db) => db.insertRuns(run, run2));
 }
