@@ -2,8 +2,6 @@ import cli from "./cli.js";
 import mariadb from "mariadb";
 import { Run, StatusCodes } from "energy-label-types";
 
-function printReturn<T>(a: T) { console.log(a); return a }
-
 enum DBTYPES {
 	Int,
 	Text,
@@ -36,7 +34,7 @@ class SurogateKeyBank {
 		[Tables.ErrorMessage]: 0,
 	};
 
-	constructor() { }
+	constructor() {}
 
 	set<K extends keyof SurogateKeys>(key: K, value: SurogateKeys[K]) {
 		this.keys[key] = value;
@@ -45,18 +43,19 @@ class SurogateKeyBank {
 	requestKey<K extends keyof SurogateKeys>(
 		key: K,
 		value: string,
-	): SurogateKeys[K] {
+	): { value: SurogateKeys[K]; hit: boolean } {
 		const cacheKey = key + value;
-		if (cacheKey in this.cache) return printReturn(this.cache[cacheKey]);
+		if (cacheKey in this.cache)
+			return { value: this.cache[cacheKey], hit: true };
 
 		const newKey = ++this.keys[key];
-
 		this.cache[cacheKey] = newKey;
+
 		setTimeout(() => {
 			delete this.cache[cacheKey];
 		}, 100000);
 
-		return newKey;
+		return { value: newKey, hit: false };
 	}
 }
 
@@ -80,6 +79,14 @@ type Schema<T> = Array<
  * */
 function sanitize(s: string) {
 	return s.replace("'", "\\'");
+}
+
+/**
+ * Sanitize the input or return "NULL" if it is undefined or null
+ * */
+function valueOrNull(value: any): string {
+	if (value === undefined || value === null) return "NULL";
+	else return `'${sanitize(String(value))}'`;
 }
 
 /**
@@ -195,7 +202,7 @@ export default class DB {
 	 *
 	 * */
 	private async initKeys(): Promise<DB> {
-		const query = initKeys(schema, dummyParent, {});
+		const query = initKeys(schema, dummyParent, {}, {});
 		const result = await this.query(query, (a) => a[0].id);
 		Object.entries(result)
 			.map(([k, r]) => [k, r] as [keyof SurogateKeys, number])
@@ -269,7 +276,7 @@ export default class DB {
 	 * Initialize tables in database
 	 * */
 	async init() {
-		const queries = compileTables(schema, dummyParent, {});
+		const queries = compileTables(schema, dummyParent, {}, {});
 		await this.query(queries);
 	}
 
@@ -279,13 +286,17 @@ export default class DB {
 	async insertRuns(...runs: Run[]) {
 		const self = this;
 		async function $insertRun(run: Run) {
+			console.log(`Inserting into DB: ${JSON.stringify(run)}`);
 			const keys = await self.query(
-				getKeys(schema, dummyParent, run),
-				(a) => a.length === 0 ? undefined : a[0].id as number,
+				getKeys(schema, dummyParent, run, {}),
+				(a) =>
+					a.length === 0
+						? undefined
+						: ((a[0].id as number) ?? undefined),
 			);
 
 			await self.query(
-				insertRun(schema, dummyParent, [run, keys, self.keys])
+				insertRun(schema, dummyParent, run, [keys, self.keys]),
 			);
 		}
 
@@ -297,7 +308,7 @@ export default class DB {
 	 * This function WILL delete all data in the database
 	 * */
 	async dropTables() {
-		const query = dropTables(schema, dummyParent, {});
+		const query = dropTables(schema, dummyParent, {}, {});
 		await this.query(query);
 	}
 }
@@ -308,44 +319,22 @@ export default class DB {
 function keysAndValues<T>(
 	schema: Schema<T>,
 	run: T,
-	surogateKeys: Results<number | undefined>,
-	bank: SurogateKeyBank,
+	sorugateKeys: Results<number | undefined>,
 ): [Array<string>, Array<string>] {
 	const keys = schema.map((field) => field.name);
 
-	const values = schema
-		.map((field) => {
-			switch (field.dbtype) {
-				case DBTYPES.Int:
-					return `'${(run[field.runkey] as number) ?? 0}'`;
-				case DBTYPES.Text:
-					return `'${sanitize((run[field.runkey] as string) ?? "NULL")}'`;
-				case DBTYPES.ForeignKey:
-					if (field.table === Tables.Fact) return;
-					return `'${surogateKeys[field.table] ??
-						bank.requestKey(
-							field.table,
-							createCacheKey(field.child, run)
-						)
-						}'`;
-			}
-		})
-		.filter((a) => a !== undefined);
+	const values = schema.map((field) => {
+		switch (field.dbtype) {
+			case DBTYPES.Int:
+			case DBTYPES.Text:
+				return valueOrNull(run[field.runkey]);
+			case DBTYPES.ForeignKey:
+				return valueOrNull(sorugateKeys[field.table]);
+		}
+	});
 
 	return [keys, values];
 }
-
-function createCacheKey<T>(schema: Schema<T>, run: T): string {
-	return schema
-		.map((a) => {
-			switch (a.dbtype) {
-				case DBTYPES.ForeignKey: return createCacheKey(a.child, run)
-				default: run[a.runkey]
-			}
-		})
-		.join("#");
-}
-
 
 type TraverseReturn = { [key in Tables]?: string };
 
@@ -354,12 +343,28 @@ type TraverseReturn = { [key in Tables]?: string };
  * fact: Command special to the facttable
  * child: Command special to all children
  * */
-function traverseSchema<S, V extends object>(
-	fact: (schema: Schema<S>, parent: SchemaFK<S>, val: V) => TraverseReturn,
-	child: (schema: Schema<S>, parent: SchemaFK<S>, val: V) => TraverseReturn,
+function traverseSchema<S, V extends object, W extends object>(
+	fact: (
+		schema: Schema<S>,
+		parent: SchemaFK<S>,
+		val: V,
+		options: W,
+	) => TraverseReturn,
+	child: (
+		schema: Schema<S>,
+		parent: SchemaFK<S>,
+		val: V,
+		options: W,
+	) => TraverseReturn,
 	allwaysExtend: boolean = false,
+	condition: (
+		schema: Schema<S>,
+		parent: SchemaFK<S>,
+		val: V,
+		options: W,
+	) => boolean = () => true,
 ) {
-	return (schema: Schema<S>, parent: SchemaFK<S>, val: V) => {
+	return (schema: Schema<S>, parent: SchemaFK<S>, val: V, options: W) => {
 		let stmt: Array<string> = [];
 		// TRAVERSE CHILDREN
 		for (const field of schema) {
@@ -367,54 +372,86 @@ function traverseSchema<S, V extends object>(
 				field.dbtype === DBTYPES.ForeignKey &&
 				(allwaysExtend ||
 					field.optional === undefined ||
-					field.optional in val)
+					field.optional in val) &&
+				condition(field.child, field, val, options)
 			) {
 				stmt = {
 					...stmt,
-					...traverseSchema(child, child, allwaysExtend)(
+					...traverseSchema(child, child, allwaysExtend, condition)(
 						field.child,
 						field,
 						val,
+						options,
 					),
 				};
 			}
 		}
 
 		// TRAVERSE SELF
-		return { ...stmt, ...fact(schema, parent, val) };
+		return { ...stmt, ...fact(schema, parent, val, options) };
 	};
 }
 
 /**
  * Insert a run in to the database
  * */
-const insertRun = traverseSchema<Run, [Run, Results<number | undefined>, SurogateKeyBank]>(
-	(schema, parent, [run, sorugateKeys, bank]) => {
-		const [keys, values] = keysAndValues(schema, run, sorugateKeys, bank);
+const insertRun = traverseSchema<
+	Run,
+	Run,
+	[Results<number | undefined>, SurogateKeyBank]
+>(
+	(schema, parent, run, [sorugateKeys]) => {
+		let [keys, values] = keysAndValues(schema, run, sorugateKeys);
 		return {
 			[parent.table]: `INSERT INTO ${parent.table} (${keys.join(",")}) VALUES (${values.join(",")})`,
 		};
 	},
-	(schema, parent, [run, sorugateKeys, bank]) => {
-		if (parent.table in sorugateKeys) return {};
+	(schema, parent, run, [sorugateKeys]) => {
 		let stmt = "";
 
-		const [keys, values] = keysAndValues(schema, run, sorugateKeys, bank);
+		const [keys, values] = keysAndValues(schema, run, sorugateKeys);
 
-		stmt +=
-			`INSERT INTO ${parent.table} (${keys.join(",")}) SELECT ${values.join(",")} `
+		keys.push(parent.child_key);
+		values.push(valueOrNull(sorugateKeys[parent.table]));
+
+		stmt += `INSERT INTO ${parent.table} (${keys.join(",")}) VALUES (${values.join(",")})`;
 		return { [parent.table]: stmt };
 	},
 	false,
+	(schema, parent, run, [sorugateKeys, bank]) => {
+		if (parent.table === Tables.Fact) return true;
+		if (sorugateKeys[parent.table] !== undefined) {
+			return false;
+		}
+		// Increment sorugate key
+		const { value, hit } = bank.requestKey(
+			parent.table,
+			createCacheKey(schema, run),
+		);
+		sorugateKeys[parent.table] = value;
+		return !hit;
+	},
 );
+
+function createCacheKey<T>(schema: Schema<T>, run: T): string {
+	return schema
+		.map((a) => {
+			switch (a.dbtype) {
+				case DBTYPES.ForeignKey:
+					return createCacheKey(a.child, run);
+				default:
+					run[a.runkey];
+			}
+		})
+		.join("#");
+}
 
 /**
  * Create a  single table
  * */
 function createTable<T>(hasId: boolean) {
 	return (schema: Schema<T>, parent: SchemaFK<T>) => {
-		let stmt = "";
-		stmt += `CREATE TABLE ${parent.table}( ` + hasId ? `${parent.child_key} INT UNSIGNED,` : "";
+		let stmt = `CREATE TABLE ${parent.table}( ${hasId ? `${parent.child_key} INT UNSIGNED,` : ""}`;
 		stmt += schema
 			.map((field) => {
 				switch (field.dbtype) {
@@ -435,13 +472,13 @@ function createTable<T>(hasId: boolean) {
 		}
 
 		return { [parent.table]: stmt };
-	}
+	};
 }
 
 /**
  * Create queries to create all tables in the schema
  * */
-const compileTables = traverseSchema<Run, object>(
+const compileTables = traverseSchema<Run, object, object>(
 	createTable(false),
 	createTable(true),
 	true,
@@ -465,6 +502,9 @@ const dropTables = traverseSchema(
 	true,
 );
 
+/**
+ * Get the max id of each table
+ * */
 const initKeys = traverseSchema(
 	() => {
 		return {};
@@ -477,8 +517,11 @@ const initKeys = traverseSchema(
 	true,
 );
 
+/**
+ * Create an innerjoin of all tables in the schema and children
+ * */
 function innerJoin<T>(schema: Schema<T>, table: Tables) {
-	function $innerJoin<T>(schema: Schema<T>, table: Tables): string[] {
+	function $innerJoin(schema: Schema<T>, table: Tables): string[] {
 		return schema
 			.filter((f) => f.dbtype === DBTYPES.ForeignKey)
 			.flatMap((f) => [
@@ -490,6 +533,9 @@ function innerJoin<T>(schema: Schema<T>, table: Tables) {
 	return [table, ...$innerJoin(schema, table)].join(" ");
 }
 
+/**
+ * Create a where clause of a joined table created by `innerJoin`
+ * */
 function joinWhere<T extends object>(
 	schema: Schema<T>,
 	table: Tables,
@@ -499,12 +545,9 @@ function joinWhere<T extends object>(
 		return schema.flatMap((f) => {
 			switch (f.dbtype) {
 				case DBTYPES.Int:
-					return [
-						`${table}.${f.name}='${value[f.runkey] ?? "NULL"}'`,
-					];
 				case DBTYPES.Text:
 					return [
-						`${table}.${f.name}='${sanitize((value[f.runkey] ?? "NULL") as string)}'`,
+						`${table}.${f.name}=${valueOrNull(value[f.runkey])}`,
 					];
 				case DBTYPES.ForeignKey:
 					return $joinWhere(f.child, f.table);
@@ -515,15 +558,21 @@ function joinWhere<T extends object>(
 	return $joinWhere(schema, table).join(" AND ");
 }
 
+/**
+ * The query for `getKeys`
+ * */
 function getKeysQuery<T extends object>(
 	schema: Schema<T>,
 	table: Tables,
 	id_name: string,
 	value: T,
 ) {
-	return `SELECT ${table}.${id_name} AS id FROM ${innerJoin(schema, table)} WHERE ${joinWhere(schema, table, value)}`;
+	return `SELECT MAX(${table}.${id_name}) AS id FROM ${innerJoin(schema, table)} WHERE ${joinWhere(schema, table, value)}`;
 }
 
+/**
+ * Get the key of a specific entry of the database
+ * */
 const getKeys = traverseSchema(
 	() => {
 		return {};
@@ -547,7 +596,7 @@ export async function insertTestRun() {
 	const run: Run = {
 		score: 10,
 		statusCode: StatusCodes.TestRun,
-		errorMessage: "IT'S A TEST :)",
+		errorMessage: "IT'S A TEST :) x",
 		browserName: "TestBrowser",
 		browserVersion: "t1.234",
 		pluginVersion: "t1.23.415",
