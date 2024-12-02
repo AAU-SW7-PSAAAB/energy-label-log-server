@@ -1,8 +1,8 @@
 import cli from "./cli.js";
 import mariadb from "mariadb";
 import { Run, StatusCodes } from "energy-label-types";
-import { exit } from "process";
-import { Schema } from "zod";
+
+function printReturn<T>(a: T) { console.log(a); return a }
 
 enum DBTYPES {
 	Int,
@@ -26,7 +26,6 @@ type SurogateKeys = { [x in Exclude<Tables, Tables.Fact>]: number };
 
 class SurogateKeyBank {
 	cache: Record<string, number> = {};
-	constructor() {}
 	private keys: SurogateKeys = {
 		[Tables.Url]: 0,
 		[Tables.Domain]: 0,
@@ -37,16 +36,18 @@ class SurogateKeyBank {
 		[Tables.ErrorMessage]: 0,
 	};
 
+	constructor() { }
+
 	set<K extends keyof SurogateKeys>(key: K, value: SurogateKeys[K]) {
 		this.keys[key] = value;
 	}
 
-	request<K extends keyof SurogateKeys>(
+	requestKey<K extends keyof SurogateKeys>(
 		key: K,
 		value: string,
 	): SurogateKeys[K] {
 		const cacheKey = key + value;
-		if (cacheKey in this.cache) return this.cache[cacheKey];
+		if (cacheKey in this.cache) return printReturn(this.cache[cacheKey]);
 
 		const newKey = ++this.keys[key];
 
@@ -195,7 +196,7 @@ export default class DB {
 	 * */
 	private async initKeys(): Promise<DB> {
 		const query = initKeys(schema, dummyParent, {});
-		const result = await this.query(query, (a) => a.id);
+		const result = await this.query(query, (a) => a[0].id);
 		Object.entries(result)
 			.map(([k, r]) => [k, r] as [keyof SurogateKeys, number])
 			.forEach((a) => this.keys.set(...a));
@@ -241,7 +242,7 @@ export default class DB {
 			conn = await this.pool.getConnection();
 			conn.beginTransaction();
 
-			let results = (await Promise.all(
+			const results = (await Promise.all(
 				Object.entries(queries).map(([k, q]) =>
 					(conn as mariadb.PoolConnection)
 						.query(q)
@@ -280,9 +281,15 @@ export default class DB {
 		async function $insertRun(run: Run) {
 			const keys = await self.query(
 				getKeys(schema, dummyParent, run),
-				(a) => a.id as number,
+				(a) => a.length === 0 ? undefined : a[0].id as number,
+			);
+
+			await self.query(
+				insertRun(schema, dummyParent, [run, keys, self.keys])
 			);
 		}
+
+		await Promise.all(runs.map($insertRun));
 	}
 
 	/**
@@ -301,7 +308,7 @@ export default class DB {
 function keysAndValues<T>(
 	schema: Schema<T>,
 	run: T,
-	surogateKeys: Results<number>,
+	surogateKeys: Results<number | undefined>,
 	bank: SurogateKeyBank,
 ): [Array<string>, Array<string>] {
 	const keys = schema.map((field) => field.name);
@@ -315,22 +322,30 @@ function keysAndValues<T>(
 					return `'${sanitize((run[field.runkey] as string) ?? "NULL")}'`;
 				case DBTYPES.ForeignKey:
 					if (field.table === Tables.Fact) return;
-					return `'${
-						surogateKeys[field.table] ??
-						bank.request(
+					return `'${surogateKeys[field.table] ??
+						bank.requestKey(
 							field.table,
-							field.child
-								.filter((a) => a.dbtype !== DBTYPES.ForeignKey)
-								.map((a) => run[a.runkey])
-								.join("#"),
+							createCacheKey(field.child, run)
 						)
-					}'`;
+						}'`;
 			}
 		})
 		.filter((a) => a !== undefined);
 
 	return [keys, values];
 }
+
+function createCacheKey<T>(schema: Schema<T>, run: T): string {
+	return schema
+		.map((a) => {
+			switch (a.dbtype) {
+				case DBTYPES.ForeignKey: return createCacheKey(a.child, run)
+				default: run[a.runkey]
+			}
+		})
+		.join("#");
+}
+
 
 type TraverseReturn = { [key in Tables]?: string };
 
@@ -371,81 +386,64 @@ function traverseSchema<S, V extends object>(
 }
 
 /**
- * Create the where clause of a child schema
- * */
-function createWhere<T>(schema: Schema<T>, run: T): string {
-	return schema
-		.map((field) => {
-			switch (field.dbtype) {
-				case DBTYPES.Int:
-					return `${field.name}='${sanitize((run[field.runkey] ?? 0).toString())}'`;
-				case DBTYPES.Text:
-					return `${field.name}='${sanitize((run[field.runkey] ?? "NULL").toString())}'`;
-				case DBTYPES.ForeignKey:
-					return `EXISTS (SELECT id FROM ${field.table} WHERE ${createWhere(field.child, run)} LIMIT 1)`;
-			}
-		})
-		.join(" AND ");
-}
-
-/**
  * Insert a run in to the database
  * */
-const insertRun = (<T>() =>
-	traverseSchema<T, [T, Results<number>, SurogateKeyBank]>(
-		(schema, parent, [run, sorugateKeys]) => {
-			const [keys, values] = keysAndValues(schema, run);
-			return {
-				[parent.table]: `INSERT INTO ${parent.table} (${keys.join(",")}) VALUES (${values.join(",")})`,
-			};
-		},
-		(schema, parent, [run, sorugateKeys, bank]) => {
-			if (parent.table in sorugateKeys) return {};
-			let stmt = "";
+const insertRun = traverseSchema<Run, [Run, Results<number | undefined>, SurogateKeyBank]>(
+	(schema, parent, [run, sorugateKeys, bank]) => {
+		const [keys, values] = keysAndValues(schema, run, sorugateKeys, bank);
+		return {
+			[parent.table]: `INSERT INTO ${parent.table} (${keys.join(",")}) VALUES (${values.join(",")})`,
+		};
+	},
+	(schema, parent, [run, sorugateKeys, bank]) => {
+		if (parent.table in sorugateKeys) return {};
+		let stmt = "";
 
-			const [keys, values] = keysAndValues(schema, run, sorugateKeys, bank);
+		const [keys, values] = keysAndValues(schema, run, sorugateKeys, bank);
 
-			stmt +=
-				`INSERT INTO ${parent.table} (${keys.join(",")}) SELECT ${values.join(",")} `
-			return { [parent.table]: stmt };
-		},
-		false,
-	))();
+		stmt +=
+			`INSERT INTO ${parent.table} (${keys.join(",")}) SELECT ${values.join(",")} `
+		return { [parent.table]: stmt };
+	},
+	false,
+);
 
 /**
  * Create a  single table
  * */
-function createTable<T>(schema: Schema<T>, parent: SchemaFK<T>) {
-	let stmt = "";
-	stmt += `CREATE TABLE ${parent.table}( ${parent.child_key} INT UNSIGNED,`;
-	stmt += schema
-		.map((field) => {
-			switch (field.dbtype) {
-				case DBTYPES.Int:
-					return `${field.name} INT UNSIGNED`;
-				case DBTYPES.Text:
-					return `${field.name} TINYTEXT`;
-				case DBTYPES.ForeignKey:
-					return `${field.name} INT UNSIGNED`;
-			}
-		})
-		.join(",");
-	stmt += `)`;
-	if (cli.fallback("true").get("--mariadb-column-store") === "true") {
-		stmt += "ENGINE = ColumnStore;";
-	} else {
-		stmt += ";";
-	}
+function createTable<T>(hasId: boolean) {
+	return (schema: Schema<T>, parent: SchemaFK<T>) => {
+		let stmt = "";
+		stmt += `CREATE TABLE ${parent.table}( ` + hasId ? `${parent.child_key} INT UNSIGNED,` : "";
+		stmt += schema
+			.map((field) => {
+				switch (field.dbtype) {
+					case DBTYPES.Int:
+						return `${field.name} INT UNSIGNED`;
+					case DBTYPES.Text:
+						return `${field.name} TINYTEXT`;
+					case DBTYPES.ForeignKey:
+						return `${field.name} INT UNSIGNED`;
+				}
+			})
+			.join(",");
+		stmt += `)`;
+		if (cli.fallback("true").get("--mariadb-column-store") === "true") {
+			stmt += "ENGINE = ColumnStore;";
+		} else {
+			stmt += ";";
+		}
 
-	return { [parent.table]: stmt };
+		return { [parent.table]: stmt };
+	}
 }
 
 /**
  * Create queries to create all tables in the schema
  * */
 const compileTables = traverseSchema<Run, object>(
-	createTable,
-	createTable,
+	createTable(false),
+	createTable(true),
 	true,
 );
 
