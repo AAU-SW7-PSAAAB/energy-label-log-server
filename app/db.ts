@@ -440,7 +440,7 @@ function createCacheKey<T>(schema: Schema<T>, run: T): string {
 				case DBTYPES.ForeignKey:
 					return createCacheKey(a.child, run);
 				default:
-					run[a.runkey];
+					return run[a.runkey];
 			}
 		})
 		.join("#");
@@ -557,6 +557,7 @@ function joinWhere<T extends object>(
 
 	return $joinWhere(schema, table).join(" AND ");
 }
+
 
 /**
  * The query for `getKeys`
