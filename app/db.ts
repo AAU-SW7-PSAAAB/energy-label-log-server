@@ -278,21 +278,13 @@ export default class DB {
 			conn.beginTransaction();
 
 			const results = await Promise.all(
-				Object.entries(queries)
-					.map(([k, q]) =>
-						conn !== null
-							? conn
-									.query(q)
-									.then(
-										(res) =>
-											[k, map(validator(res))] as [
-												Tables,
-												R,
-											],
-									)
-							: null,
-					)
-					.filter((a) => a !== null),
+				Object.entries(queries).map(([k, q]) =>
+					(conn as mariadb.PoolConnection)
+						.query(q)
+						.then(validator)
+						.then(map)
+						.then((res) => [k, res] as [Tables, R]),
+				),
 			);
 
 			await conn.commit();
