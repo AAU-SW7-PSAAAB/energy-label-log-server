@@ -558,7 +558,6 @@ function joinWhere<T extends object>(
 	return $joinWhere(schema, table).join(" AND ");
 }
 
-
 /**
  * The query for `getKeys`
  * */
