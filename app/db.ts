@@ -17,7 +17,7 @@ const zidResponce = z
 						}),
 						z.NEVER);
 			})
-			.nullable(),
+			.nullable().or(z.number()),
 	})
 	.array();
 const identity = <T>(a: T) => a;
