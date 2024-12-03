@@ -1,6 +1,26 @@
 import cli from "./cli.js";
 import mariadb from "mariadb";
 import { Run, StatusCodes } from "energy-label-types";
+import z from "zod";
+
+const zidResponce = z
+	.object({
+		id: z
+			.string()
+			.transform((val, ctx) => {
+				const x = Number(val);
+				return !isNaN(x)
+					? x
+					: (ctx.addIssue({
+							code: z.ZodIssueCode.custom,
+							message: "Not a number",
+						}),
+						z.NEVER);
+			})
+			.nullable(),
+	})
+	.array();
+const identity = <T>(a: T) => a;
 
 enum DBTYPES {
 	Int,
@@ -84,7 +104,7 @@ function sanitize(s: string) {
 /**
  * Sanitize the input or return "NULL" if it is undefined or null
  * */
-function valueOrNull(value: any): string {
+function valueOrNull<T>(value: T): string {
 	if (value === undefined || value === null) return "NULL";
 	else return `'${sanitize(String(value))}'`;
 }
@@ -203,7 +223,14 @@ export default class DB {
 	 * */
 	private async initKeys(): Promise<DB> {
 		const query = initKeys(schema, dummyParent, {}, {});
-		const result = await this.query(query, (a) => a[0].id);
+		const result = await this.query(
+			query,
+			(r) => {
+				const res = zidResponce.safeParse(r);
+				return res.success ? res.data : [{ id: 0 }];
+			},
+			(a) => a[0].id,
+		);
 		Object.entries(result)
 			.map(([k, r]) => [k, r] as [keyof SurogateKeys, number])
 			.forEach((a) => this.keys.set(...a));
@@ -240,29 +267,40 @@ export default class DB {
 	/**
 	 * Pipeline a list of commands
 	 * */
-	private async query<T>(
+	private async query<T, R>(
 		queries: TraverseReturn,
-		map: (a: any) => T = (a) => a,
-	): Promise<Results<T>> {
+		validator: (data: unknown) => T,
+		map: (a: T) => R,
+	): Promise<Results<R>> {
 		let conn: mariadb.PoolConnection | null = null;
 		try {
 			conn = await this.pool.getConnection();
 			conn.beginTransaction();
 
-			const results = (await Promise.all(
-				Object.entries(queries).map(([k, q]) =>
-					(conn as mariadb.PoolConnection)
-						.query(q)
-						.then((res) => [k, map(res)]),
-				),
-			)) as [Tables, any][];
+			const results = await Promise.all(
+				Object.entries(queries)
+					.map(([k, q]) =>
+						conn !== null
+							? conn
+									.query(q)
+									.then(
+										(res) =>
+											[k, map(validator(res))] as [
+												Tables,
+												R,
+											],
+									)
+							: null,
+					)
+					.filter((a) => a !== null),
+			);
 
 			await conn.commit();
 
-			return results.reduce((p, [k, q]) => {
-				p[k] = q;
-				return p;
-			}, {} as Results<any>);
+			return results.reduce(
+				(p, [k, q]) => ((p[k] = q), p),
+				{} as Results<R>,
+			);
 		} catch (e) {
 			console.error(e);
 			if (conn !== null) await conn.rollback();
@@ -277,30 +315,32 @@ export default class DB {
 	 * */
 	async init() {
 		const queries = compileTables(schema, dummyParent, {}, {});
-		await this.query(queries);
+		await this.query(queries, identity, identity);
 	}
 
 	/**
 	 * Insert runs into the database
 	 * */
 	async insertRuns(...runs: Run[]) {
-		const self = this;
-		async function $insertRun(run: Run) {
-			console.log(`Inserting into DB: ${JSON.stringify(run)}`);
-			const keys = await self.query(
-				getKeys(schema, dummyParent, run, {}),
-				(a) =>
-					a.length === 0
-						? undefined
-						: ((a[0].id as number) ?? undefined),
-			);
+		await Promise.all(
+			runs.map(async (run: Run) => {
+				console.log(`Inserting into DB: ${JSON.stringify(run)}`);
+				const keys = await this.query(
+					getKeys(schema, dummyParent, run, {}),
+					zidResponce.parse,
+					(a) =>
+						a.length === 0
+							? undefined
+							: ((a[0].id as number) ?? undefined),
+				);
 
-			await self.query(
-				insertRun(schema, dummyParent, run, [keys, self.keys]),
-			);
-		}
-
-		await Promise.all(runs.map($insertRun));
+				await this.query(
+					insertRun(schema, dummyParent, run, [keys, this.keys]),
+					identity,
+					identity,
+				);
+			}),
+		);
 	}
 
 	/**
@@ -309,7 +349,7 @@ export default class DB {
 	 * */
 	async dropTables() {
 		const query = dropTables(schema, dummyParent, {}, {});
-		await this.query(query);
+		await this.query(query, identity, identity);
 	}
 }
 
@@ -401,7 +441,7 @@ const insertRun = traverseSchema<
 	[Results<number | undefined>, SurogateKeyBank]
 >(
 	(schema, parent, run, [sorugateKeys]) => {
-		let [keys, values] = keysAndValues(schema, run, sorugateKeys);
+		const [keys, values] = keysAndValues(schema, run, sorugateKeys);
 		return {
 			[parent.table]: `INSERT INTO ${parent.table} (${keys.join(",")}) VALUES (${values.join(",")})`,
 		};
