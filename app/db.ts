@@ -426,7 +426,7 @@ function traverseSchema<S, V extends object, W extends object>(
 }
 
 /**
- * Insert a run in to the database
+ * Insert a run into the database
  * */
 const insertRun = traverseSchema<
 	Run,
