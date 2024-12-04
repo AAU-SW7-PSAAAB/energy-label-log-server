@@ -527,7 +527,7 @@ function createTable<T>(hasId: boolean) {
 /**
  * Create queries to create all tables in the schema
  * */
-const compileTables = traverseSchema({
+const compileTables = traverseSchema<Run, object, object, Query>({
 	fact: createTable(false),
 	dimension: createTable(true),
 	condition: () => true,
@@ -546,7 +546,7 @@ const createDropTableQuery = <T>(
 /**
  * Create queries to drop all tables in a schema
  * */
-const dropTables = traverseSchema({
+const dropTables = traverseSchema<Run, object, object, Query>({
 	fact: createDropTableQuery,
 	dimension: createDropTableQuery,
 	allwaysExtend: true,
@@ -556,7 +556,7 @@ const dropTables = traverseSchema({
 /**
  * Get the max id of each table
  * */
-const initKeys = traverseSchema({
+const initKeys = traverseSchema<Run, object, object, Query>({
 	fact: () => {
 		return {};
 	},
@@ -625,15 +625,11 @@ function getKeysQuery<T extends object>(
 /**
  * Get the key of a specific entry of the database
  * */
-const getKeys = traverseSchema({
+const getKeys = traverseSchema<Run, Run, object, Query>({
 	fact: () => {
 		return {};
 	},
-	dimension: <T extends object>(
-		schema: Schema<T>,
-		parent: SchemaFK<T>,
-		value: T,
-	) => {
+	dimension: (schema, parent, value) => {
 		return {
 			[parent.table]: getKeysQuery(
 				schema,
