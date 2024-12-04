@@ -3,7 +3,7 @@ import mariadb from "mariadb";
 import { Run, StatusCodes } from "energy-label-types";
 import z from "zod";
 
-const zidResponce = z
+const zIdResponce = z
 	.object({
 		id: z
 			.string()
@@ -23,7 +23,7 @@ const zidResponce = z
 	.array();
 const identity = <T>(a: T) => a;
 
-enum DBTYPES {
+enum DBTypes {
 	Int,
 	Text,
 	ForeignKey,
@@ -41,11 +41,11 @@ enum Tables {
 }
 
 type Results<T> = { [x in Tables]?: T };
-type SurogateKeys = { [x in Exclude<Tables, Tables.Fact>]: number };
+type SurrogateKeys = { [x in Exclude<Tables, Tables.Fact>]: number };
 
-class SurogateKeyBank {
+class SurrogateKeyBank {
 	cache: Record<string, number> = {};
-	private keys: SurogateKeys = {
+	private keys: SurrogateKeys = {
 		[Tables.Url]: 0,
 		[Tables.Domain]: 0,
 		[Tables.Browser]: 0,
@@ -57,14 +57,14 @@ class SurogateKeyBank {
 
 	constructor() {}
 
-	set<K extends keyof SurogateKeys>(key: K, value: SurogateKeys[K]) {
+	set<K extends keyof SurrogateKeys>(key: K, value: SurrogateKeys[K]) {
 		this.keys[key] = value;
 	}
 
-	requestKey<K extends keyof SurogateKeys>(
+	requestKey<K extends keyof SurrogateKeys>(
 		key: K,
 		value: string,
-	): { value: SurogateKeys[K]; hit: boolean } {
+	): { value: SurrogateKeys[K]; hit: boolean } {
 		const cacheKey = key + value;
 		if (cacheKey in this.cache)
 			return { value: this.cache[cacheKey], hit: true };
@@ -81,7 +81,7 @@ class SurogateKeyBank {
 }
 
 type SchemaFK<T> = {
-	dbtype: DBTYPES.ForeignKey;
+	dbtype: DBTypes.ForeignKey;
 	name: string;
 	table: Tables;
 	child_key: string;
@@ -90,8 +90,8 @@ type SchemaFK<T> = {
 };
 
 type Schema<T> = Array<
-	| { dbtype: DBTYPES.Int; name: string; runkey: keyof T }
-	| { dbtype: DBTYPES.Text; name: string; runkey: keyof T }
+	| { dbtype: DBTypes.Int; name: string; runkey: keyof T }
+	| { dbtype: DBTypes.Text; name: string; runkey: keyof T }
 	| SchemaFK<T>
 >;
 
@@ -111,45 +111,45 @@ function valueOrNull<T>(value: T): string {
 }
 
 /**
- * A Rrepresentation of the tabels in the database
+ * A representation of the tabels in the database
  * */
 const schema: Schema<Run> = [
-	{ dbtype: DBTYPES.Int, name: "score", runkey: "score" },
-	{ dbtype: DBTYPES.Int, name: "status_code", runkey: "statusCode" },
+	{ dbtype: DBTypes.Int, name: "score", runkey: "score" },
+	{ dbtype: DBTypes.Int, name: "status_code", runkey: "statusCode" },
 	{
-		dbtype: DBTYPES.ForeignKey,
+		dbtype: DBTypes.ForeignKey,
 		name: "error_message",
 		table: Tables.ErrorMessage,
 		optional: "errorMessage",
 		child_key: "id",
 		child: [
 			{
-				dbtype: DBTYPES.Text,
+				dbtype: DBTypes.Text,
 				name: "error_message",
 				runkey: "errorMessage",
 			},
 		],
 	},
 	{
-		dbtype: DBTYPES.ForeignKey,
+		dbtype: DBTypes.ForeignKey,
 		name: "plugin_id",
 		table: Tables.Plugin,
 		child_key: "id",
 		child: [
-			{ dbtype: DBTYPES.Text, name: "version", runkey: "pluginVersion" },
+			{ dbtype: DBTypes.Text, name: "version", runkey: "pluginVersion" },
 			{
-				dbtype: DBTYPES.Text,
+				dbtype: DBTypes.Text,
 				name: "extention_version",
 				runkey: "extensionVersion",
 			},
 			{
-				dbtype: DBTYPES.ForeignKey,
+				dbtype: DBTypes.ForeignKey,
 				name: "plugin_name_id",
 				table: Tables.PluginName,
 				child_key: "id",
 				child: [
 					{
-						dbtype: DBTYPES.Text,
+						dbtype: DBTypes.Text,
 						name: "name",
 						runkey: "pluginName",
 					},
@@ -158,20 +158,20 @@ const schema: Schema<Run> = [
 		],
 	},
 	{
-		dbtype: DBTYPES.ForeignKey,
+		dbtype: DBTypes.ForeignKey,
 		name: "browser_id",
 		table: Tables.Browser,
 		child_key: "id",
 		child: [
-			{ dbtype: DBTYPES.Text, name: "version", runkey: "browserVersion" },
+			{ dbtype: DBTypes.Text, name: "version", runkey: "browserVersion" },
 			{
-				dbtype: DBTYPES.ForeignKey,
+				dbtype: DBTypes.ForeignKey,
 				name: "browser_name_id",
 				table: Tables.BrowserName,
 				child_key: "id",
 				child: [
 					{
-						dbtype: DBTYPES.Text,
+						dbtype: DBTypes.Text,
 						name: "browser_name",
 						runkey: "browserName",
 					},
@@ -180,19 +180,19 @@ const schema: Schema<Run> = [
 		],
 	},
 	{
-		dbtype: DBTYPES.ForeignKey,
+		dbtype: DBTypes.ForeignKey,
 		name: "url_id",
 		table: Tables.Url,
 		child_key: "id",
 		child: [
-			{ dbtype: DBTYPES.Text, name: "path", runkey: "path" },
+			{ dbtype: DBTypes.Text, name: "path", runkey: "path" },
 			{
-				dbtype: DBTYPES.ForeignKey,
+				dbtype: DBTypes.ForeignKey,
 				name: "domain_id",
 				table: Tables.Domain,
 				child_key: "id",
 				child: [
-					{ dbtype: DBTYPES.Text, name: "domain", runkey: "url" },
+					{ dbtype: DBTypes.Text, name: "domain", runkey: "url" },
 				],
 			},
 		],
@@ -200,7 +200,7 @@ const schema: Schema<Run> = [
 ];
 
 const dummyParent: SchemaFK<Run> = {
-	dbtype: DBTYPES.ForeignKey,
+	dbtype: DBTypes.ForeignKey,
 	name: "fact",
 	table: Tables.Fact,
 	child_key: "id",
@@ -209,7 +209,7 @@ const dummyParent: SchemaFK<Run> = {
 
 export default class DB {
 	private pool: mariadb.Pool;
-	private keys = new SurogateKeyBank();
+	private keys = new SurrogateKeyBank();
 	static async new(): Promise<DB> {
 		return await new DB().initKeys();
 	}
@@ -227,13 +227,13 @@ export default class DB {
 		const result = await this.query(
 			query,
 			(r) => {
-				const res = zidResponce.safeParse(r);
+				const res = zIdResponce.safeParse(r);
 				return res.success ? res.data : [{ id: 0 }];
 			},
 			(a) => a[0].id,
 		);
 		Object.entries(result)
-			.map(([k, r]) => [k, r] as [keyof SurogateKeys, number])
+			.map(([k, r]) => [k, r] as [keyof SurrogateKeys, number])
 			.forEach((a) => this.keys.set(...a));
 		return this;
 	}
@@ -320,7 +320,7 @@ export default class DB {
 				console.log(`Inserting into DB: ${JSON.stringify(run)}`);
 				const keys = await this.query(
 					getKeys(schema, dummyParent, run, {}),
-					zidResponce.parse,
+					zIdResponce.parse,
 					(a) =>
 						a.length === 0
 							? undefined
@@ -358,10 +358,10 @@ function keysAndValues<T>(
 
 	const values = schema.map((field) => {
 		switch (field.dbtype) {
-			case DBTYPES.Int:
-			case DBTYPES.Text:
+			case DBTypes.Int:
+			case DBTypes.Text:
 				return valueOrNull(run[field.runkey]);
-			case DBTYPES.ForeignKey:
+			case DBTypes.ForeignKey:
 				return valueOrNull(sorugateKeys[field.table]);
 		}
 	});
@@ -402,7 +402,7 @@ function traverseSchema<S, V extends object, W extends object>(
 		// TRAVERSE CHILDREN
 		for (const field of schema) {
 			if (
-				field.dbtype === DBTYPES.ForeignKey &&
+				field.dbtype === DBTypes.ForeignKey &&
 				(allwaysExtend ||
 					field.optional === undefined ||
 					field.optional in val) &&
@@ -431,7 +431,7 @@ function traverseSchema<S, V extends object, W extends object>(
 const insertRun = traverseSchema<
 	Run,
 	Run,
-	[Results<number | undefined>, SurogateKeyBank]
+	[Results<number | undefined>, SurrogateKeyBank]
 >(
 	(schema, parent, run, [sorugateKeys]) => {
 		const [keys, values] = keysAndValues(schema, run, sorugateKeys);
@@ -470,7 +470,7 @@ function createCacheKey<T>(schema: Schema<T>, run: T): string {
 	return schema
 		.map((a) => {
 			switch (a.dbtype) {
-				case DBTYPES.ForeignKey:
+				case DBTypes.ForeignKey:
 					return createCacheKey(a.child, run);
 				default:
 					return run[a.runkey];
@@ -488,11 +488,11 @@ function createTable<T>(hasId: boolean) {
 		stmt += schema
 			.map((field) => {
 				switch (field.dbtype) {
-					case DBTYPES.Int:
+					case DBTypes.Int:
 						return `${field.name} INT UNSIGNED`;
-					case DBTYPES.Text:
+					case DBTypes.Text:
 						return `${field.name} TINYTEXT`;
-					case DBTYPES.ForeignKey:
+					case DBTypes.ForeignKey:
 						return `${field.name} INT UNSIGNED`;
 				}
 			})
@@ -556,7 +556,7 @@ const initKeys = traverseSchema(
 function innerJoin<T>(schema: Schema<T>, table: Tables) {
 	function $innerJoin(schema: Schema<T>, table: Tables): string[] {
 		return schema
-			.filter((f) => f.dbtype === DBTYPES.ForeignKey)
+			.filter((f) => f.dbtype === DBTypes.ForeignKey)
 			.flatMap((f) => [
 				`INNER JOIN ${f.table} ON ${table}.${f.name}=${f.table}.${f.child_key}`,
 				...$innerJoin(f.child, f.table),
@@ -577,12 +577,12 @@ function joinWhere<T extends object>(
 	function $joinWhere(schema: Schema<T>, table: Tables): string[] {
 		return schema.flatMap((f) => {
 			switch (f.dbtype) {
-				case DBTYPES.Int:
-				case DBTYPES.Text:
+				case DBTypes.Int:
+				case DBTypes.Text:
 					return [
 						`${table}.${f.name}=${valueOrNull(value[f.runkey])}`,
 					];
-				case DBTYPES.ForeignKey:
+				case DBTypes.ForeignKey:
 					return $joinWhere(f.child, f.table);
 			}
 		});
@@ -623,7 +623,7 @@ const getKeys = traverseSchema(
 );
 
 /**
- * Insert a testrun in the database
+ * Insert a test run in the database
  * */
 export async function insertTestRun() {
 	const run: Run = {
