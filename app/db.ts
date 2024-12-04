@@ -352,7 +352,7 @@ export default class DB {
 function keysAndValues<T>(
 	schema: Schema<T>,
 	run: T,
-	sorugateKeys: Results<number | undefined>,
+	surrogateKeys: Results<number | undefined>,
 ): [Array<string>, Array<string>] {
 	const keys = schema.map((field) => field.name);
 
