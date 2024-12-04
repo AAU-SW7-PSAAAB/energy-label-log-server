@@ -281,8 +281,8 @@ export default class DB {
 
 			await conn.commit();
 
-			return results.reduce((p, [key, queryString]) => {
-				p[key] = queryString;
+			return results.reduce((p, [key, res]) => {
+				p[key] = res;
 				return p;
 			}, {} as Results<R>);
 		} catch (e) {
