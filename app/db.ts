@@ -9,13 +9,14 @@ const zIdResponse = z
 			.string()
 			.transform((val, ctx) => {
 				const x = Number(val);
-				return !isNaN(x)
-					? x
-					: (ctx.addIssue({
-							code: z.ZodIssueCode.custom,
-							message: "Not a number",
-						}),
-						z.NEVER);
+				if (!isNaN(x)) return x;
+				else {
+					ctx.addIssue({
+						code: z.ZodIssueCode.custom,
+						message: "Not a number",
+					});
+					return z.NEVER;
+				}
 			})
 			.nullable()
 			.or(z.number()),
