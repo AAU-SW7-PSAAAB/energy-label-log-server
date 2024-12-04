@@ -3,7 +3,7 @@ import mariadb from "mariadb";
 import { Run, StatusCodes } from "energy-label-types";
 import z from "zod";
 
-const zIdResponce = z
+const zIdResponse = z
 	.object({
 		id: z
 			.string()
@@ -12,9 +12,9 @@ const zIdResponce = z
 				return !isNaN(x)
 					? x
 					: (ctx.addIssue({
-							code: z.ZodIssueCode.custom,
-							message: "Not a number",
-						}),
+						code: z.ZodIssueCode.custom,
+						message: "Not a number",
+					}),
 						z.NEVER);
 			})
 			.nullable()
@@ -55,7 +55,7 @@ class SurrogateKeyBank {
 		[Tables.ErrorMessage]: 0,
 	};
 
-	constructor() {}
+	constructor() { }
 
 	set<K extends keyof SurrogateKeys>(key: K, value: SurrogateKeys[K]) {
 		this.keys[key] = value;
@@ -227,7 +227,7 @@ export default class DB {
 		const result = await this.query(
 			query,
 			(r) => {
-				const res = zIdResponce.safeParse(r);
+				const res = zIdResponse.safeParse(r);
 				return res.success ? res.data : [{ id: 0 }];
 			},
 			(a) => a[0].id,
@@ -320,7 +320,7 @@ export default class DB {
 				console.log(`Inserting into DB: ${JSON.stringify(run)}`);
 				const keys = await this.query(
 					getKeys(schema, dummyParent, run, {}),
-					zIdResponce.parse,
+					zIdResponse.parse,
 					(a) =>
 						a.length === 0
 							? undefined
