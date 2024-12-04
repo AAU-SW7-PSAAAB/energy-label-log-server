@@ -62,7 +62,7 @@ class SurrogateKeyBank {
 		[Tables.ErrorMessage]: 0,
 	};
 
-	constructor() { }
+	constructor() {}
 
 	set<K extends keyof SurrogateKeys>(key: K, value: SurrogateKeys[K]) {
 		this.keys[key] = value;
