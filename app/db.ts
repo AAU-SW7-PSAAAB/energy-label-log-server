@@ -362,7 +362,7 @@ function keysAndValues<T>(
 			case DBTypes.Text:
 				return valueOrNull(run[field.runkey]);
 			case DBTypes.ForeignKey:
-				return valueOrNull(sorugateKeys[field.table]);
+				return valueOrNull(surrogateKeys[field.table]);
 		}
 	});
 
