@@ -12,9 +12,9 @@ const zIdResponse = z
 				return !isNaN(x)
 					? x
 					: (ctx.addIssue({
-						code: z.ZodIssueCode.custom,
-						message: "Not a number",
-					}),
+							code: z.ZodIssueCode.custom,
+							message: "Not a number",
+						}),
 						z.NEVER);
 			})
 			.nullable()
@@ -55,7 +55,7 @@ class SurrogateKeyBank {
 		[Tables.ErrorMessage]: 0,
 	};
 
-	constructor() { }
+	constructor() {}
 
 	set<K extends keyof SurrogateKeys>(key: K, value: SurrogateKeys[K]) {
 		this.keys[key] = value;
@@ -268,11 +268,15 @@ export default class DB {
 	/**
 	 * Pipeline a list of commands
 	 * */
-	private async query<T, R>(
-		queries: TraverseReturn,
-		validator: (data: unknown) => T,
-		map: (a: T) => R,
-	): Promise<Results<R>> {
+	private async query<T, R>({
+		queries,
+		validator,
+		map,
+	}: {
+		queries: TraverseReturn;
+		validator: (data: unknown) => T;
+		map: (a: T) => R;
+	}): Promise<Results<R>> {
 		let conn: mariadb.PoolConnection | null = null;
 		try {
 			conn = await this.pool.getConnection();
@@ -308,7 +312,7 @@ export default class DB {
 	 * */
 	async init() {
 		const queries = compileTables(schema, dummyParent, {}, {});
-		await this.query(queries, identity, identity);
+		await this.query({ queries, validator: identity, map: identity });
 	}
 
 	/**
@@ -318,14 +322,14 @@ export default class DB {
 		await Promise.all(
 			runs.map(async (run: Run) => {
 				console.log(`Inserting into DB: ${JSON.stringify(run)}`);
-				const keys = await this.query(
-					getKeys(schema, dummyParent, run, {}),
-					zIdResponse.parse,
-					(a) =>
+				const keys = await this.query({
+					queries: getKeys(schema, dummyParent, run, {}),
+					validator: zIdResponse.parse,
+					map: (a) =>
 						a.length === 0
 							? undefined
 							: ((a[0].id as number) ?? undefined),
-				);
+				});
 
 				await this.query(
 					insertRun(schema, dummyParent, run, [keys, this.keys]),
@@ -341,8 +345,8 @@ export default class DB {
 	 * This function WILL delete all data in the database
 	 * */
 	async dropTables() {
-		const query = dropTables(schema, dummyParent, {}, {});
-		await this.query(query, identity, identity);
+		const queries = dropTables(schema, dummyParent, {}, {});
+		await this.query({ queries, validator: identity, map: identity });
 	}
 }
 
