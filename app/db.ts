@@ -433,27 +433,27 @@ const insertRun = traverseSchema<
 	Run,
 	[Results<number | undefined>, SurrogateKeyBank]
 >(
-	(schema, parent, run, [sorugateKeys]) => {
-		const [keys, values] = keysAndValues(schema, run, sorugateKeys);
+	(schema, parent, run, [surrogateKeys]) => {
+		const [keys, values] = keysAndValues(schema, run, surrogateKeys);
 		return {
 			[parent.table]: `INSERT INTO ${parent.table} (${keys.join(",")}) VALUES (${values.join(",")})`,
 		};
 	},
-	(schema, parent, run, [sorugateKeys]) => {
+	(schema, parent, run, [surrogateKeys]) => {
 		let stmt = "";
 
-		const [keys, values] = keysAndValues(schema, run, sorugateKeys);
+		const [keys, values] = keysAndValues(schema, run, surrogateKeys);
 
 		keys.push(parent.child_key);
-		values.push(valueOrNull(sorugateKeys[parent.table]));
+		values.push(valueOrNull(surrogateKeys[parent.table]));
 
 		stmt += `INSERT INTO ${parent.table} (${keys.join(",")}) VALUES (${values.join(",")})`;
 		return { [parent.table]: stmt };
 	},
 	false,
-	(schema, parent, run, [sorugateKeys, bank]) => {
+	(schema, parent, run, [surrogateKeys, bank]) => {
 		if (parent.table === Tables.Fact) return true;
-		if (sorugateKeys[parent.table] !== undefined) {
+		if (surrogateKeys[parent.table] !== undefined) {
 			return false;
 		}
 		// Increment sorugate key
@@ -461,7 +461,7 @@ const insertRun = traverseSchema<
 			parent.table,
 			createCacheKey(schema, run),
 		);
-		sorugateKeys[parent.table] = value;
+		surrogateKeys[parent.table] = value;
 		return !hit;
 	},
 );
