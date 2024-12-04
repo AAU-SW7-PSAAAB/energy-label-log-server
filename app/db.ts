@@ -12,9 +12,9 @@ const zIdResponce = z
 				return !isNaN(x)
 					? x
 					: (ctx.addIssue({
-						code: z.ZodIssueCode.custom,
-						message: "Not a number",
-					}),
+							code: z.ZodIssueCode.custom,
+							message: "Not a number",
+						}),
 						z.NEVER);
 			})
 			.nullable()
@@ -55,7 +55,7 @@ class SurrogateKeyBank {
 		[Tables.ErrorMessage]: 0,
 	};
 
-	constructor() { }
+	constructor() {}
 
 	set<K extends keyof SurrogateKeys>(key: K, value: SurrogateKeys[K]) {
 		this.keys[key] = value;
