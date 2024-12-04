@@ -47,6 +47,8 @@ enum Tables {
 
 type Results<T> = { [x in Tables]?: T };
 type SurrogateKeys = { [x in Exclude<Tables, Tables.Fact>]: number };
+type TraverseReturn<R> = { [key in Tables]?: R };
+type Query = string;
 
 class SurrogateKeyBank {
 	cache: Record<string, number> = {};
@@ -258,7 +260,7 @@ export default class DB {
 		validator,
 		mapResult,
 	}: {
-		queries: TraverseReturn;
+		queries: TraverseReturn<Query>;
 		validator: (data: unknown) => T;
 		mapResult: (a: T) => R;
 	}): Promise<Results<R>> {
@@ -379,14 +381,12 @@ function keysAndValues<T>(
 	return [keys, values];
 }
 
-type TraverseReturn = { [key in Tables]?: string };
-
 /**
  * Run a recursive command on all tables in the schema
  * fact: Command special to the facttable
  * child: Command special to all children
  * */
-function traverseSchema<S, V extends object, W extends object>({
+function traverseSchema<S, V extends object, W extends object, R>({
 	fact,
 	dimension,
 	allwaysExtend,
@@ -397,13 +397,13 @@ function traverseSchema<S, V extends object, W extends object>({
 		parent: SchemaFK<S>,
 		value: V,
 		options: W,
-	) => TraverseReturn;
+	) => TraverseReturn<R>;
 	dimension: (
 		schema: Schema<S>,
 		parent: SchemaFK<S>,
 		value: V,
 		options: W,
-	) => TraverseReturn;
+	) => TraverseReturn<R>;
 	condition: (
 		schema: Schema<S>,
 		parent: SchemaFK<S>,
@@ -446,7 +446,8 @@ function traverseSchema<S, V extends object, W extends object>({
 const insertRun = traverseSchema<
 	Run,
 	Run,
-	[Results<number | undefined>, SurrogateKeyBank]
+	[Results<number | undefined>, SurrogateKeyBank],
+	Query
 >({
 	fact: (schema, parent, run, [surrogateKeys]) => {
 		const [keys, values] = keysAndValues(schema, run, surrogateKeys);
@@ -526,7 +527,7 @@ function createTable<T>(hasId: boolean) {
 /**
  * Create queries to create all tables in the schema
  * */
-const compileTables = traverseSchema<Run, object, object>({
+const compileTables = traverseSchema({
 	fact: createTable(false),
 	dimension: createTable(true),
 	condition: () => true,
