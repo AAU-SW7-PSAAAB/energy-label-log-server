@@ -62,7 +62,7 @@ class SurrogateKeyBank {
 		[Tables.ErrorMessage]: 0,
 	};
 
-	constructor() {}
+	constructor() { }
 
 	set<K extends keyof SurrogateKeys>(key: K, value: SurrogateKeys[K]) {
 		this.keys[key] = value;
@@ -295,7 +295,7 @@ export default class DB {
 	}
 
 	/**
-	 * Initializes the keytables to match the databse
+	 * Initializes the keytables to match the database
 	 * */
 	private async initKeys(): Promise<DB> {
 		const result = await this.query({
