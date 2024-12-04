@@ -320,10 +320,10 @@ export default class DB {
 				const existingKeys = await this.query({
 					queries: getKeys(schema, dummyParent, run, {}),
 					validator: zIdResponse.parse,
-					mapResult: (a) =>
-						a.length === 0
+					mapResult: (res) =>
+						res.length === 0
 							? undefined
-							: ((a[0].id as number) ?? undefined),
+							: ((res[0].id as number) ?? undefined),
 				});
 
 				await this.query({
@@ -483,12 +483,12 @@ const insertRun = traverseSchema<
 
 function createCacheKey<T>(schema: Schema<T>, run: T): string {
 	return schema
-		.map((a) => {
-			switch (a.dbtype) {
+		.map((f) => {
+			switch (f.dbtype) {
 				case DBTypes.ForeignKey:
-					return createCacheKey(a.child, run);
+					return createCacheKey(f.child, run);
 				default:
-					return run[a.runkey];
+					return run[f.runkey];
 			}
 		})
 		.join("#");
