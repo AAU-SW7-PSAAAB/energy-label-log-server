@@ -21,6 +21,10 @@ const zIdResponse = z
 			.or(z.number()),
 	})
 	.array();
+
+/**
+ * Do nothing
+ * */
 const identity = <T>(a: T) => a;
 
 enum DBTypes {
@@ -209,33 +213,13 @@ const dummyParent: SchemaFK<Run> = {
 
 export default class DB {
 	private pool: mariadb.Pool;
-	private keys = new SurrogateKeyBank();
+	private keyBank = new SurrogateKeyBank();
 	static async new(): Promise<DB> {
 		return await new DB().initKeys();
 	}
 
 	constructor() {
 		this.pool = this.connect();
-	}
-
-	/**
-	 * Initializes the keytables to match the databse
-	 *
-	 * */
-	private async initKeys(): Promise<DB> {
-		const query = initKeys(schema, dummyParent, {}, {});
-		const result = await this.query(
-			query,
-			(r) => {
-				const res = zIdResponse.safeParse(r);
-				return res.success ? res.data : [{ id: 0 }];
-			},
-			(a) => a[0].id,
-		);
-		Object.entries(result)
-			.map(([k, r]) => [k, r] as [keyof SurrogateKeys, number])
-			.forEach((a) => this.keys.set(...a));
-		return this;
 	}
 
 	/**
@@ -271,11 +255,11 @@ export default class DB {
 	private async query<T, R>({
 		queries,
 		validator,
-		map,
+		mapResult,
 	}: {
 		queries: TraverseReturn;
 		validator: (data: unknown) => T;
-		map: (a: T) => R;
+		mapResult: (a: T) => R;
 	}): Promise<Results<R>> {
 		let conn: mariadb.PoolConnection | null = null;
 		try {
@@ -283,21 +267,21 @@ export default class DB {
 			conn.beginTransaction();
 
 			const results = await Promise.all(
-				Object.entries(queries).map(([k, q]) =>
+				Object.entries(queries).map(([key, queryString]) =>
 					(conn as mariadb.PoolConnection)
-						.query(q)
+						.query(queryString)
 						.then(validator)
-						.then(map)
-						.then((res) => [k, res] as [Tables, R]),
+						.then(mapResult)
+						.then((res) => [key, res] as [Tables, R]),
 				),
 			);
 
 			await conn.commit();
 
-			return results.reduce(
-				(p, [k, q]) => ((p[k] = q), p),
-				{} as Results<R>,
-			);
+			return results.reduce((p, [key, queryString]) => {
+				p[key] = queryString;
+				return p;
+			}, {} as Results<R>);
 		} catch (e) {
 			console.error(e);
 			if (conn !== null) await conn.rollback();
@@ -308,11 +292,21 @@ export default class DB {
 	}
 
 	/**
-	 * Initialize tables in database
+	 * Initializes the keytables to match the databse
 	 * */
-	async init() {
-		const queries = compileTables(schema, dummyParent, {}, {});
-		await this.query({ queries, validator: identity, map: identity });
+	private async initKeys(): Promise<DB> {
+		const result = await this.query({
+			queries: initKeys(schema, dummyParent, {}, {}),
+			validator: (r) => {
+				const res = zIdResponse.safeParse(r);
+				return res.success ? res.data : [{ id: 0 }];
+			},
+			mapResult: (res) => res[0].id,
+		});
+		Object.entries(result)
+			.map(([key, id]) => [key, id] as [keyof SurrogateKeys, number])
+			.forEach((data) => this.keyBank.set(...data));
+		return this;
 	}
 
 	/**
@@ -322,22 +316,33 @@ export default class DB {
 		await Promise.all(
 			runs.map(async (run: Run) => {
 				console.log(`Inserting into DB: ${JSON.stringify(run)}`);
-				const keys = await this.query({
+				const existingKeys = await this.query({
 					queries: getKeys(schema, dummyParent, run, {}),
 					validator: zIdResponse.parse,
-					map: (a) =>
+					mapResult: (a) =>
 						a.length === 0
 							? undefined
 							: ((a[0].id as number) ?? undefined),
 				});
 
-				await this.query(
-					insertRun(schema, dummyParent, run, [keys, this.keys]),
-					identity,
-					identity,
-				);
+				await this.query({
+					queries: insertRun(schema, dummyParent, run, [
+						existingKeys,
+						this.keyBank,
+					]),
+					validator: identity,
+					mapResult: identity,
+				});
 			}),
 		);
+	}
+
+	/**
+	 * Initialize tables in database
+	 * */
+	async init() {
+		const queries = compileTables(schema, dummyParent, {}, {});
+		await this.query({ queries, validator: identity, mapResult: identity });
 	}
 
 	/**
@@ -346,7 +351,7 @@ export default class DB {
 	 * */
 	async dropTables() {
 		const queries = dropTables(schema, dummyParent, {}, {});
-		await this.query({ queries, validator: identity, map: identity });
+		await this.query({ queries, validator: identity, mapResult: identity });
 	}
 }
 
@@ -380,27 +385,32 @@ type TraverseReturn = { [key in Tables]?: string };
  * fact: Command special to the facttable
  * child: Command special to all children
  * */
-function traverseSchema<S, V extends object, W extends object>(
+function traverseSchema<S, V extends object, W extends object>({
+	fact,
+	dimension,
+	allwaysExtend,
+	condition,
+}: {
 	fact: (
 		schema: Schema<S>,
 		parent: SchemaFK<S>,
 		val: V,
 		options: W,
-	) => TraverseReturn,
-	child: (
+	) => TraverseReturn;
+	dimension: (
 		schema: Schema<S>,
 		parent: SchemaFK<S>,
 		val: V,
 		options: W,
-	) => TraverseReturn,
-	allwaysExtend: boolean = false,
+	) => TraverseReturn;
 	condition: (
 		schema: Schema<S>,
 		parent: SchemaFK<S>,
 		val: V,
 		options: W,
-	) => boolean = () => true,
-) {
+	) => boolean;
+	allwaysExtend: boolean;
+}) {
 	return (schema: Schema<S>, parent: SchemaFK<S>, val: V, options: W) => {
 		let stmt: Array<string> = [];
 		// TRAVERSE CHILDREN
@@ -414,12 +424,12 @@ function traverseSchema<S, V extends object, W extends object>(
 			) {
 				stmt = {
 					...stmt,
-					...traverseSchema(child, child, allwaysExtend, condition)(
-						field.child,
-						field,
-						val,
-						options,
-					),
+					...traverseSchema({
+						fact: dimension,
+						dimension,
+						allwaysExtend,
+						condition,
+					})(field.child, field, val, options),
 				};
 			}
 		}
@@ -436,14 +446,14 @@ const insertRun = traverseSchema<
 	Run,
 	Run,
 	[Results<number | undefined>, SurrogateKeyBank]
->(
-	(schema, parent, run, [surrogateKeys]) => {
+>({
+	fact: (schema, parent, run, [surrogateKeys]) => {
 		const [keys, values] = keysAndValues(schema, run, surrogateKeys);
 		return {
 			[parent.table]: `INSERT INTO ${parent.table} (${keys.join(",")}) VALUES (${values.join(",")})`,
 		};
 	},
-	(schema, parent, run, [surrogateKeys]) => {
+	dimension: (schema, parent, run, [surrogateKeys]) => {
 		let stmt = "";
 
 		const [keys, values] = keysAndValues(schema, run, surrogateKeys);
@@ -454,8 +464,7 @@ const insertRun = traverseSchema<
 		stmt += `INSERT INTO ${parent.table} (${keys.join(",")}) VALUES (${values.join(",")})`;
 		return { [parent.table]: stmt };
 	},
-	false,
-	(schema, parent, run, [surrogateKeys, bank]) => {
+	condition: (schema, parent, run, [surrogateKeys, bank]) => {
 		if (parent.table === Tables.Fact) return true;
 		if (surrogateKeys[parent.table] !== undefined) {
 			return false;
@@ -468,7 +477,8 @@ const insertRun = traverseSchema<
 		surrogateKeys[parent.table] = value;
 		return !hit;
 	},
-);
+	allwaysExtend: false,
+});
 
 function createCacheKey<T>(schema: Schema<T>, run: T): string {
 	return schema
@@ -515,11 +525,12 @@ function createTable<T>(hasId: boolean) {
 /**
  * Create queries to create all tables in the schema
  * */
-const compileTables = traverseSchema<Run, object, object>(
-	createTable(false),
-	createTable(true),
-	true,
-);
+const compileTables = traverseSchema<Run, object, object>({
+	fact: createTable(false),
+	dimension: createTable(true),
+	condition: () => true,
+	allwaysExtend: true,
+});
 
 /**
  * Create a drop table query
@@ -533,26 +544,28 @@ const createDropTableQuery = <T>(
 /**
  * Create queries to drop all tables in a schema
  * */
-const dropTables = traverseSchema(
-	createDropTableQuery,
-	createDropTableQuery,
-	true,
-);
+const dropTables = traverseSchema({
+	fact: createDropTableQuery,
+	dimension: createDropTableQuery,
+	allwaysExtend: true,
+	condition: () => true,
+});
 
 /**
  * Get the max id of each table
  * */
-const initKeys = traverseSchema(
-	() => {
+const initKeys = traverseSchema({
+	fact: () => {
 		return {};
 	},
-	<T>(...[, parent]: [Schema<T>, SchemaFK<T>, object]) => {
+	dimension: <T>(...[, parent]: [Schema<T>, SchemaFK<T>, object]) => {
 		return {
 			[parent.table]: `SELECT COALESCE(MAX(id), 0) AS id FROM ${parent.table}`,
 		};
 	},
-	true,
-);
+	condition: () => true,
+	allwaysExtend: true,
+});
 
 /**
  * Create an innerjoin of all tables in the schema and children
@@ -610,11 +623,15 @@ function getKeysQuery<T extends object>(
 /**
  * Get the key of a specific entry of the database
  * */
-const getKeys = traverseSchema(
-	() => {
+const getKeys = traverseSchema({
+	fact: () => {
 		return {};
 	},
-	<T extends object>(schema: Schema<T>, parent: SchemaFK<T>, value: T) => {
+	dimension: <T extends object>(
+		schema: Schema<T>,
+		parent: SchemaFK<T>,
+		value: T,
+	) => {
 		return {
 			[parent.table]: getKeysQuery(
 				schema,
@@ -624,7 +641,9 @@ const getKeys = traverseSchema(
 			),
 		};
 	},
-);
+	condition: () => true,
+	allwaysExtend: false,
+});
 
 /**
  * Insert a test run in the database
