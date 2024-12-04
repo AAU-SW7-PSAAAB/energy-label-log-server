@@ -394,24 +394,24 @@ function traverseSchema<S, V extends object, W extends object>({
 	fact: (
 		schema: Schema<S>,
 		parent: SchemaFK<S>,
-		val: V,
+		value: V,
 		options: W,
 	) => TraverseReturn;
 	dimension: (
 		schema: Schema<S>,
 		parent: SchemaFK<S>,
-		val: V,
+		value: V,
 		options: W,
 	) => TraverseReturn;
 	condition: (
 		schema: Schema<S>,
 		parent: SchemaFK<S>,
-		val: V,
+		value: V,
 		options: W,
 	) => boolean;
 	allwaysExtend: boolean;
 }) {
-	return (schema: Schema<S>, parent: SchemaFK<S>, val: V, options: W) => {
+	return (schema: Schema<S>, parent: SchemaFK<S>, value: V, options: W) => {
 		let stmt: Array<string> = [];
 		// TRAVERSE CHILDREN
 		for (const field of schema) {
@@ -419,8 +419,8 @@ function traverseSchema<S, V extends object, W extends object>({
 				field.dbtype === DBTypes.ForeignKey &&
 				(allwaysExtend ||
 					field.optional === undefined ||
-					field.optional in val) &&
-				condition(field.child, field, val, options)
+					field.optional in value) &&
+				condition(field.child, field, value, options)
 			) {
 				stmt = {
 					...stmt,
@@ -429,13 +429,13 @@ function traverseSchema<S, V extends object, W extends object>({
 						dimension,
 						allwaysExtend,
 						condition,
-					})(field.child, field, val, options),
+					})(field.child, field, value, options),
 				};
 			}
 		}
 
 		// TRAVERSE SELF
-		return { ...stmt, ...fact(schema, parent, val, options) };
+		return { ...stmt, ...fact(schema, parent, value, options) };
 	};
 }
 
