@@ -19,7 +19,7 @@ CREATE DATABASE energylabel;
 ```
 
 ```SQL
-CREATE USER energylabel@localhost IDENTIFIED BY energylabel;
+CREATE USER energylabel@localhost IDENTIFIED BY "energylabel";
 ```
 
 ```SQL
