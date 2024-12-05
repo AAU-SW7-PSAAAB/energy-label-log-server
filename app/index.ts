@@ -14,7 +14,7 @@ import { SqlError } from "mariadb";
 export async function main() {
 	await checkSingleArgs();
 
-	const db = new DB();
+	const db = await DB.new();
 
 	const port = Number(cli.fallback("3000").get("--port"));
 	const host = cli.fallback("localhost").get("--host");
