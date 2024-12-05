@@ -36,7 +36,7 @@ $ npm i
 $ npm run exec -- --mariadb-init
 ```
 
-If column store is not installed to
+If column store is not installed do
 ```bash
 $ npm run exec -- --mariadb-init --mariadb-column-store=false
 ```
