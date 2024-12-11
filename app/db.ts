@@ -1,14 +1,39 @@
 import cli from "./cli.js";
 import mariadb from "mariadb";
 import { Run, StatusCodes } from "energy-label-types";
-import { exit } from "process";
+import z from "zod";
 
-enum DBTYPES {
+const zIdResponse = z
+	.object({
+		id: z
+			.string()
+			.transform((val, ctx) => {
+				const x = Number(val);
+				if (!isNaN(x)) return x;
+				else {
+					ctx.addIssue({
+						code: z.ZodIssueCode.custom,
+						message: "Not a number",
+					});
+					return z.NEVER;
+				}
+			})
+			.nullable()
+			.or(z.number()),
+	})
+	.array();
+
+/**
+ * Do nothing
+ * */
+const identity = <T>(a: T) => a;
+
+enum DBTypes {
 	Int,
 	Text,
 	ForeignKey,
-	PrimaryKey,
 }
+
 enum Tables {
 	PluginName = "PluginName",
 	Plugin = "Plugin",
@@ -20,19 +45,61 @@ enum Tables {
 	Fact = "Fact",
 }
 
+type Results<T> = { [x in Tables]?: T };
+type SurrogateKeys = { [x in Exclude<Tables, Tables.Fact>]: number };
+type TraverseReturn<R> = { [key in Tables]?: R };
+type Query = string;
+
+class SurrogateKeyBank {
+	cache: Record<string, number> = {};
+	private keys: SurrogateKeys = {
+		[Tables.Url]: 0,
+		[Tables.Domain]: 0,
+		[Tables.Browser]: 0,
+		[Tables.BrowserName]: 0,
+		[Tables.Plugin]: 0,
+		[Tables.PluginName]: 0,
+		[Tables.ErrorMessage]: 0,
+	};
+
+	constructor() {}
+
+	set<K extends keyof SurrogateKeys>(key: K, value: SurrogateKeys[K]) {
+		this.keys[key] = value;
+	}
+
+	requestKey<K extends keyof SurrogateKeys>(
+		key: K,
+		value: string,
+	): { value: SurrogateKeys[K]; hit: boolean } {
+		const cacheKey = key + value;
+		if (cacheKey in this.cache)
+			return { value: this.cache[cacheKey], hit: true };
+
+		const newKey = ++this.keys[key];
+		this.cache[cacheKey] = newKey;
+
+		setTimeout(() => {
+			delete this.cache[cacheKey];
+		}, 100000);
+
+		return { value: newKey, hit: false };
+	}
+}
+
 type SchemaFK<T> = {
-	dbtype: DBTYPES.ForeignKey;
+	dbtype: DBTypes.ForeignKey;
 	name: string;
 	table: Tables;
+	child_key: string;
 	child: Schema<T>;
 	optional?: keyof T;
 };
 
 type Schema<T> = Array<
-	| { dbtype: DBTYPES.Int; name: string; runkey: keyof T }
-	| { dbtype: DBTYPES.Text; name: string; runkey: keyof T }
+	| { dbtype: DBTypes.Int; name: string; runkey: keyof T }
+	| { dbtype: DBTypes.Text; name: string; runkey: keyof T }
 	| SchemaFK<T>
-	| { dbtype: DBTYPES.PrimaryKey; name: string }
 >;
 
 /**
@@ -43,45 +110,53 @@ function sanitize(s: string) {
 }
 
 /**
- * A Rrepresentation of the tabels in the database
+ * Sanitize the input or return "NULL" if it is undefined or null
+ * */
+function valueOrNull<T>(value: T): string {
+	if (value === undefined || value === null) return "NULL";
+	else return `'${sanitize(String(value))}'`;
+}
+
+/**
+ * A representation of the tabels in the database
  * */
 const schema: Schema<Run> = [
-	{ dbtype: DBTYPES.Int, name: "score", runkey: "score" },
-	{ dbtype: DBTYPES.Int, name: "status_code", runkey: "statusCode" },
+	{ dbtype: DBTypes.Int, name: "score", runkey: "score" },
+	{ dbtype: DBTypes.Int, name: "status_code", runkey: "statusCode" },
 	{
-		dbtype: DBTYPES.ForeignKey,
+		dbtype: DBTypes.ForeignKey,
 		name: "error_message",
 		table: Tables.ErrorMessage,
 		optional: "errorMessage",
+		child_key: "id",
 		child: [
-			{ dbtype: DBTYPES.PrimaryKey, name: "id" },
 			{
-				dbtype: DBTYPES.Text,
+				dbtype: DBTypes.Text,
 				name: "error_message",
 				runkey: "errorMessage",
 			},
 		],
 	},
 	{
-		dbtype: DBTYPES.ForeignKey,
+		dbtype: DBTypes.ForeignKey,
 		name: "plugin_id",
 		table: Tables.Plugin,
+		child_key: "id",
 		child: [
-			{ dbtype: DBTYPES.PrimaryKey, name: "id" },
-			{ dbtype: DBTYPES.Text, name: "version", runkey: "pluginVersion" },
+			{ dbtype: DBTypes.Text, name: "version", runkey: "pluginVersion" },
 			{
-				dbtype: DBTYPES.Text,
+				dbtype: DBTypes.Text,
 				name: "extention_version",
 				runkey: "extensionVersion",
 			},
 			{
-				dbtype: DBTYPES.ForeignKey,
+				dbtype: DBTypes.ForeignKey,
 				name: "plugin_name_id",
 				table: Tables.PluginName,
+				child_key: "id",
 				child: [
-					{ dbtype: DBTYPES.PrimaryKey, name: "id" },
 					{
-						dbtype: DBTYPES.Text,
+						dbtype: DBTypes.Text,
 						name: "name",
 						runkey: "pluginName",
 					},
@@ -90,20 +165,20 @@ const schema: Schema<Run> = [
 		],
 	},
 	{
-		dbtype: DBTYPES.ForeignKey,
+		dbtype: DBTypes.ForeignKey,
 		name: "browser_id",
 		table: Tables.Browser,
+		child_key: "id",
 		child: [
-			{ dbtype: DBTYPES.PrimaryKey, name: "id" },
-			{ dbtype: DBTYPES.Text, name: "version", runkey: "browserVersion" },
+			{ dbtype: DBTypes.Text, name: "version", runkey: "browserVersion" },
 			{
-				dbtype: DBTYPES.ForeignKey,
+				dbtype: DBTypes.ForeignKey,
 				name: "browser_name_id",
 				table: Tables.BrowserName,
+				child_key: "id",
 				child: [
-					{ dbtype: DBTYPES.PrimaryKey, name: "id" },
 					{
-						dbtype: DBTYPES.Text,
+						dbtype: DBTypes.Text,
 						name: "browser_name",
 						runkey: "browserName",
 					},
@@ -112,19 +187,19 @@ const schema: Schema<Run> = [
 		],
 	},
 	{
-		dbtype: DBTYPES.ForeignKey,
+		dbtype: DBTypes.ForeignKey,
 		name: "url_id",
 		table: Tables.Url,
+		child_key: "id",
 		child: [
-			{ dbtype: DBTYPES.PrimaryKey, name: "id" },
-			{ dbtype: DBTYPES.Text, name: "path", runkey: "path" },
+			{ dbtype: DBTypes.Text, name: "path", runkey: "path" },
 			{
-				dbtype: DBTYPES.ForeignKey,
+				dbtype: DBTypes.ForeignKey,
 				name: "domain_id",
 				table: Tables.Domain,
+				child_key: "id",
 				child: [
-					{ dbtype: DBTYPES.PrimaryKey, name: "id" },
-					{ dbtype: DBTYPES.Text, name: "domain", runkey: "url" },
+					{ dbtype: DBTypes.Text, name: "domain", runkey: "url" },
 				],
 			},
 		],
@@ -132,17 +207,24 @@ const schema: Schema<Run> = [
 ];
 
 const dummyParent: SchemaFK<Run> = {
-	dbtype: DBTYPES.ForeignKey,
+	dbtype: DBTypes.ForeignKey,
 	name: "fact",
 	table: Tables.Fact,
+	child_key: "id",
 	child: schema,
 };
 
 export default class DB {
 	private pool: mariadb.Pool;
+	private keyBank = new SurrogateKeyBank();
+	static async new(): Promise<DB> {
+		return await new DB().initKeys();
+	}
+
 	constructor() {
 		this.pool = this.connect();
 	}
+
 	/**
 	 * Create a connection pool
 	 * */
@@ -173,15 +255,36 @@ export default class DB {
 	/**
 	 * Pipeline a list of commands
 	 * */
-	private async query(queries: string[]) {
-		let conn: mariadb.Connection | null = null;
+	private async query<T, R>({
+		queries,
+		validator,
+		mapResult,
+	}: {
+		queries: TraverseReturn<Query>;
+		validator: (data: unknown) => T;
+		mapResult: (a: T) => R;
+	}): Promise<Results<R>> {
+		let conn: mariadb.PoolConnection | null = null;
 		try {
 			conn = await this.pool.getConnection();
 			conn.beginTransaction();
-			for (const query of queries) {
-				await conn.query(query);
-			}
+
+			const results = await Promise.all(
+				Object.entries(queries).map(([key, queryString]) =>
+					(conn as mariadb.PoolConnection)
+						.query(queryString)
+						.then(validator)
+						.then(mapResult)
+						.then((res) => [key, res] as [Tables, R]),
+				),
+			);
+
 			await conn.commit();
+
+			return results.reduce((p, [key, res]) => {
+				p[key] = res;
+				return p;
+			}, {} as Results<R>);
 		} catch (e) {
 			console.error(e);
 			if (conn !== null) await conn.rollback();
@@ -192,21 +295,57 @@ export default class DB {
 	}
 
 	/**
-	 * Initialize tables in database
+	 * Initializes the keytables to match the database
 	 * */
-	async init() {
-		const queries = compileTables(schema, dummyParent, {});
-		await this.query(queries);
+	async initKeys(): Promise<DB> {
+		const result = await this.query({
+			queries: initKeys(schema, dummyParent, {}, {}),
+			validator: (r) => {
+				const res = zIdResponse.safeParse(r);
+				return res.success ? res.data : [{ id: 0 }];
+			},
+			mapResult: (res) => res[0].id,
+		});
+		Object.entries(result)
+			.map(([key, id]) => [key, id] as [keyof SurrogateKeys, number])
+			.forEach((data) => this.keyBank.set(...data));
+		return this;
 	}
 
 	/**
 	 * Insert runs into the database
 	 * */
 	async insertRuns(...runs: Run[]) {
-		const query = runs.flatMap((run) =>
-			insertRun(schema, dummyParent, run),
+		await Promise.all(
+			runs.map(async (run: Run) => {
+				console.log(`Inserting into DB: ${JSON.stringify(run)}`);
+				const existingKeys = await this.query({
+					queries: getKeys(schema, dummyParent, run, {}),
+					validator: zIdResponse.parse,
+					mapResult: (res) =>
+						res.length === 0
+							? undefined
+							: ((res[0].id as number) ?? undefined),
+				});
+
+				await this.query({
+					queries: insertRun(schema, dummyParent, run, [
+						existingKeys,
+						this.keyBank,
+					]),
+					validator: identity,
+					mapResult: identity,
+				});
+			}),
 		);
-		await this.query(query);
+	}
+
+	/**
+	 * Initialize tables in database
+	 * */
+	async init() {
+		const queries = compileTables(schema, dummyParent, {}, {});
+		await this.query({ queries, validator: identity, mapResult: identity });
 	}
 
 	/**
@@ -214,66 +353,30 @@ export default class DB {
 	 * This function WILL delete all data in the database
 	 * */
 	async dropTables() {
-		const query = dropTables(schema, dummyParent, {}).reverse();
-		await this.query(query);
+		const queries = dropTables(schema, dummyParent, {}, {});
+		await this.query({ queries, validator: identity, mapResult: identity });
 	}
-}
-
-/**
- * Gets name of id in child schema
- * */
-function findid<T>(schema: Schema<T>) {
-	for (const field of schema) {
-		if (field.dbtype === DBTYPES.PrimaryKey) {
-			return field.name;
-		}
-	}
-	console.error("A foreing key must be able to reference a primary key");
-	exit(1);
 }
 
 /**
  * Returns [keys, values] of a schema based on the values of in a Run
  * */
-function keysAndValues(
-	schema: Schema<Run>,
-	run: Run,
+function keysAndValues<T>(
+	schema: Schema<T>,
+	run: T,
+	surrogateKeys: Results<number | undefined>,
 ): [Array<string>, Array<string>] {
-	const keys = schema
-		.map((field) => {
-			switch (field.dbtype) {
-				case DBTYPES.PrimaryKey:
-					return "";
-				default:
-					return field.name;
-			}
-		})
-		.filter((s) => s !== "");
+	const keys = schema.map((field) => field.name);
 
-	const values = schema
-		.map((field) => {
-			switch (field.dbtype) {
-				case DBTYPES.PrimaryKey:
-					return "";
-				case DBTYPES.Int:
-					return (
-						"'" +
-						sanitize(
-							((run[field.runkey] as number) ?? 0).toString(),
-						) +
-						"'"
-					);
-				case DBTYPES.Text:
-					return (
-						"'" +
-						sanitize((run[field.runkey] as string) ?? "NULL") +
-						"'"
-					);
-				case DBTYPES.ForeignKey:
-					return `(SELECT id FROM ${field.table} WHERE ${createWhere(field.child, run)} LIMIT 1)`;
-			}
-		})
-		.filter((s) => s !== "");
+	const values = schema.map((field) => {
+		switch (field.dbtype) {
+			case DBTypes.Int:
+			case DBTypes.Text:
+				return valueOrNull(run[field.runkey]);
+			case DBTypes.ForeignKey:
+				return valueOrNull(surrogateKeys[field.table]);
+		}
+	});
 
 	return [keys, values];
 }
@@ -283,119 +386,153 @@ function keysAndValues(
  * fact: Command special to the facttable
  * child: Command special to all children
  * */
-function traverseSchema<S, V extends object>(
-	fact: (schema: Schema<S>, parent: SchemaFK<S>, val: V) => string[],
-	child: (schema: Schema<S>, parent: SchemaFK<S>, val: V) => string[],
-	allwaysExtend: boolean,
-) {
-	return (schema: Schema<S>, parent: SchemaFK<S>, val: V) => {
+function traverseSchema<S, V extends object, W extends object, R>({
+	fact,
+	dimension,
+	allwaysExtend,
+	condition,
+}: {
+	fact: (
+		schema: Schema<S>,
+		parent: SchemaFK<S>,
+		value: V,
+		options: W,
+	) => TraverseReturn<R>;
+	dimension: (
+		schema: Schema<S>,
+		parent: SchemaFK<S>,
+		value: V,
+		options: W,
+	) => TraverseReturn<R>;
+	condition: (
+		schema: Schema<S>,
+		parent: SchemaFK<S>,
+		value: V,
+		options: W,
+	) => boolean;
+	allwaysExtend: boolean;
+}) {
+	return (schema: Schema<S>, parent: SchemaFK<S>, value: V, options: W) => {
 		let stmt: Array<string> = [];
 		// TRAVERSE CHILDREN
 		for (const field of schema) {
 			if (
-				field.dbtype === DBTYPES.ForeignKey &&
+				field.dbtype === DBTypes.ForeignKey &&
 				(allwaysExtend ||
 					field.optional === undefined ||
-					field.optional in val)
+					field.optional in value) &&
+				condition(field.child, field, value, options)
 			) {
-				stmt = [
+				stmt = {
 					...stmt,
-					...traverseSchema(child, child, allwaysExtend)(
-						field.child,
-						field,
-						val,
-					),
-				];
+					...traverseSchema({
+						fact: dimension,
+						dimension,
+						allwaysExtend,
+						condition,
+					})(field.child, field, value, options),
+				};
 			}
 		}
 
 		// TRAVERSE SELF
-		return [...stmt, ...fact(schema, parent, val)];
+		return { ...stmt, ...fact(schema, parent, value, options) };
 	};
 }
 
 /**
- * Create the where clause of a child schema
+ * Insert a run into the database
  * */
-function createWhere<T>(schema: Schema<T>, run: T): string {
-	return schema
-		.map((field) => {
-			switch (field.dbtype) {
-				case DBTYPES.Int:
-					return `${field.name}='${sanitize((run[field.runkey] ?? 0).toString())}'`;
-				case DBTYPES.Text:
-					return `${field.name}='${sanitize((run[field.runkey] ?? "NULL").toString())}'`;
-				case DBTYPES.ForeignKey:
-					return `${field.name}=(SELECT id FROM ${field.table} WHERE ${createWhere(field.child, run)} LIMIT 1)`;
-				case DBTYPES.PrimaryKey:
-					return "";
-			}
-		})
-		.filter((s) => s !== "")
-		.join(" AND ");
-}
-
-/**
- * Insert a run in to the database
- * */
-const insertRun = traverseSchema<Run, Run>(
-	(schema, parent, run) => {
-		const [keys, values] = keysAndValues(schema, run);
-		return [
-			`INSERT INTO ${parent.table} (${keys.join(",")}) VALUES (${values.join(",")})`,
-		];
+const insertRun = traverseSchema<
+	Run,
+	Run,
+	[Results<number | undefined>, SurrogateKeyBank],
+	Query
+>({
+	fact: (schema, parent, run, [surrogateKeys]) => {
+		const [keys, values] = keysAndValues(schema, run, surrogateKeys);
+		return {
+			[parent.table]: `INSERT INTO ${parent.table} (${keys.join(",")}) VALUES (${values.join(",")})`,
+		};
 	},
-	(schema, parent, run) => {
+	dimension: (schema, parent, run, [surrogateKeys]) => {
 		let stmt = "";
 
-		const [keys, values] = keysAndValues(schema, run);
+		const [keys, values] = keysAndValues(schema, run, surrogateKeys);
 
-		stmt +=
-			`INSERT INTO ${parent.table} (${keys.join(",")}) SELECT ${values.join(",")} ` +
-			`WHERE NOT EXISTS (SELECT 1 FROM ${parent.table} WHERE ${createWhere(parent.child, run)} LIMIT 1);`;
-		return [stmt];
+		keys.push(parent.child_key);
+		values.push(valueOrNull(surrogateKeys[parent.table]));
+
+		stmt += `INSERT INTO ${parent.table} (${keys.join(",")}) VALUES (${values.join(",")})`;
+		return { [parent.table]: stmt };
 	},
-	false,
-);
+	condition: (schema, parent, run, [surrogateKeys, bank]) => {
+		if (parent.table === Tables.Fact) return true;
+		if (surrogateKeys[parent.table] !== undefined) {
+			return false;
+		}
+		// Increment surrogate key
+		const { value, hit } = bank.requestKey(
+			parent.table,
+			createCacheKey(schema, run),
+		);
+		surrogateKeys[parent.table] = value;
+		return !hit;
+	},
+	allwaysExtend: false,
+});
+
+function createCacheKey<T>(schema: Schema<T>, run: T): string {
+	return schema
+		.map((f) => {
+			switch (f.dbtype) {
+				case DBTypes.ForeignKey:
+					return createCacheKey(f.child, run);
+				default:
+					return run[f.runkey];
+			}
+		})
+		.join("#");
+}
 
 /**
  * Create a  single table
  * */
-function createTable<T>(schema: Schema<T>, parent: SchemaFK<T>) {
-	let stmt = "";
-	stmt += `CREATE TABLE ${parent.table}(`;
-	stmt += schema
-		.map((field) => {
-			switch (field.dbtype) {
-				case DBTYPES.Int:
-					return `${field.name} INT UNSIGNED`;
-				case DBTYPES.Text:
-					return `${field.name} TINYTEXT`;
-				case DBTYPES.PrimaryKey:
-					return `${field.name} INT UNSIGNED PRIMARY KEY AUTO_INCREMENT`;
-				case DBTYPES.ForeignKey:
-					return `${field.name} INT UNSIGNED REFERENCES ${field.table}(${findid(field.child)})`;
-			}
-		})
-		.join(",");
-	stmt += `)`;
-	if (cli.fallback("true").get("--mariadb-column-store") === "true") {
-		stmt += "ENGINE = ColumnStore;";
-	} else {
-		stmt += ";";
-	}
+function createTable<T>(hasId: boolean) {
+	return (schema: Schema<T>, parent: SchemaFK<T>) => {
+		let stmt = `CREATE TABLE ${parent.table}( ${hasId ? `${parent.child_key} INT UNSIGNED,` : ""}`;
+		stmt += schema
+			.map((field) => {
+				switch (field.dbtype) {
+					case DBTypes.Int:
+						return `${field.name} INT UNSIGNED`;
+					case DBTypes.Text:
+						return `${field.name} TINYTEXT`;
+					case DBTypes.ForeignKey:
+						return `${field.name} INT UNSIGNED`;
+				}
+			})
+			.join(",");
+		stmt += `)`;
+		if (cli.fallback("true").get("--mariadb-column-store") === "true") {
+			stmt += "ENGINE = ColumnStore;";
+		} else {
+			stmt += ";";
+		}
 
-	return [stmt];
+		return { [parent.table]: stmt };
+	};
 }
 
 /**
  * Create queries to create all tables in the schema
  * */
-const compileTables = traverseSchema<Run, object>(
-	createTable,
-	createTable,
-	true,
-);
+const compileTables = traverseSchema<Run, object, object, Query>({
+	fact: createTable(false),
+	dimension: createTable(true),
+	condition: () => true,
+	allwaysExtend: true,
+});
 
 /**
  * Create a drop table query
@@ -403,26 +540,117 @@ const compileTables = traverseSchema<Run, object>(
 const createDropTableQuery = <T>(
 	...[, parent]: [Schema<T>, SchemaFK<T>, object]
 ) => {
-	return [`DROP TABLE ${parent.table};`];
+	return { [parent.table]: `DROP TABLE ${parent.table};` };
 };
 
 /**
  * Create queries to drop all tables in a schema
  * */
-const dropTables = traverseSchema(
-	createDropTableQuery,
-	createDropTableQuery,
-	true,
-);
+const dropTables = traverseSchema<Run, object, object, Query>({
+	fact: createDropTableQuery,
+	dimension: createDropTableQuery,
+	allwaysExtend: true,
+	condition: () => true,
+});
 
 /**
- * Insert a testrun in the database
+ * Get the max id of each table
+ * */
+const initKeys = traverseSchema<Run, object, object, Query>({
+	fact: () => {
+		return {};
+	},
+	dimension: <T>(...[, parent]: [Schema<T>, SchemaFK<T>, object]) => {
+		return {
+			[parent.table]: `SELECT COALESCE(MAX(id), 0) AS id FROM ${parent.table}`,
+		};
+	},
+	condition: () => true,
+	allwaysExtend: true,
+});
+
+/**
+ * Create an innerjoin of all tables in the schema and children
+ * */
+function innerJoin<T>(schema: Schema<T>, table: Tables) {
+	function $innerJoin(schema: Schema<T>, table: Tables): string[] {
+		return schema
+			.filter((f) => f.dbtype === DBTypes.ForeignKey)
+			.flatMap((f) => [
+				`INNER JOIN ${f.table} ON ${table}.${f.name}=${f.table}.${f.child_key}`,
+				...$innerJoin(f.child, f.table),
+			]);
+	}
+
+	return [table, ...$innerJoin(schema, table)].join(" ");
+}
+
+/**
+ * Create a where clause of a joined table created by `innerJoin`
+ * */
+function joinWhere<T extends object>(
+	schema: Schema<T>,
+	table: Tables,
+	value: T,
+) {
+	function $joinWhere(schema: Schema<T>, table: Tables): string[] {
+		return schema.flatMap((f) => {
+			switch (f.dbtype) {
+				case DBTypes.Int:
+				case DBTypes.Text:
+					return [
+						`${table}.${f.name}=${valueOrNull(value[f.runkey])}`,
+					];
+				case DBTypes.ForeignKey:
+					return $joinWhere(f.child, f.table);
+			}
+		});
+	}
+
+	return $joinWhere(schema, table).join(" AND ");
+}
+
+/**
+ * The query for `getKeys`
+ * */
+function getKeysQuery<T extends object>(
+	schema: Schema<T>,
+	table: Tables,
+	id_name: string,
+	value: T,
+) {
+	return `SELECT MAX(${table}.${id_name}) AS id FROM ${innerJoin(schema, table)} WHERE ${joinWhere(schema, table, value)}`;
+}
+
+/**
+ * Get the key of a specific entry of the database
+ * */
+const getKeys = traverseSchema<Run, Run, object, Query>({
+	fact: () => {
+		return {};
+	},
+	dimension: (schema, parent, value) => {
+		return {
+			[parent.table]: getKeysQuery(
+				schema,
+				parent.table,
+				parent.child_key,
+				value,
+			),
+		};
+	},
+	condition: () => true,
+	allwaysExtend: false,
+});
+
+/**
+ * Insert a test run in the database
  * */
 export async function insertTestRun() {
 	const run: Run = {
 		score: 10,
 		statusCode: StatusCodes.TestRun,
-		errorMessage: "IT'S A TEST :)",
+		errorMessage: "IT'S A TEST :) x",
 		browserName: "TestBrowser",
 		browserVersion: "t1.234",
 		pluginVersion: "t1.23.415",
@@ -444,5 +672,5 @@ export async function insertTestRun() {
 		extensionVersion: "0.0.1",
 	};
 
-	await new DB().insertRuns(run, run2);
+	await DB.new().then((db) => db.insertRuns(run, run2));
 }

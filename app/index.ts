@@ -14,7 +14,7 @@ import { SqlError } from "mariadb";
 export async function main() {
 	await checkSingleArgs();
 
-	const db = new DB();
+	const db = await DB.new();
 
 	const port = Number(cli.fallback("3000").get("--port"));
 	const host = cli.fallback("localhost").get("--host");
@@ -29,6 +29,11 @@ export async function main() {
 	app.setSerializerCompiler(serializerCompiler);
 
 	app.get("/version", async () => ({ version: "0.0.1" }));
+	app.delete("/cleardb", async () => {
+		await db.dropTables();
+		await db.init();
+		await db.initKeys();
+	});
 	app.withTypeProvider<ZodTypeProvider>().route({
 		method: "POST",
 		url: "/log",
