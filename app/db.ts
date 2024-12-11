@@ -297,7 +297,7 @@ export default class DB {
 	/**
 	 * Initializes the keytables to match the database
 	 * */
-	private async initKeys(): Promise<DB> {
+	async initKeys(): Promise<DB> {
 		const result = await this.query({
 			queries: initKeys(schema, dummyParent, {}, {}),
 			validator: (r) => {

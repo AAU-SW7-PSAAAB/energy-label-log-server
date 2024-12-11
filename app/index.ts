@@ -32,6 +32,7 @@ export async function main() {
 	app.delete("/cleardb", async () => {
 		await db.dropTables();
 		await db.init();
+		await db.initKeys();
 	});
 	app.withTypeProvider<ZodTypeProvider>().route({
 		method: "POST",
