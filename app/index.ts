@@ -29,6 +29,10 @@ export async function main() {
 	app.setSerializerCompiler(serializerCompiler);
 
 	app.get("/version", async () => ({ version: "0.0.1" }));
+	app.delete("/cleardb", async () => {
+		await db.dropTables();
+		await db.init();
+	});
 	app.withTypeProvider<ZodTypeProvider>().route({
 		method: "POST",
 		url: "/log",
